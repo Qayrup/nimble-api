@@ -49,7 +49,6 @@ function processObject(obj, currentPath, resultSet) {
  */
 function validateObjectStructure(...objects) {
   const pathMap = new Map(); // 存储路径和对应的类型
-
   // 递归检查每个对象，忽略$前缀属性
   for (const obj of objects) {
     checkObjectStructure(obj, [], pathMap);

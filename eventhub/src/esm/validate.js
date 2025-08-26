@@ -37,5 +37,5 @@ export function isValidObj(eventConfig) {
   return Object.prototype.toString.call(eventConfig) === '[object Object]';
 }
 export function isFunction(param) {
-  return typeof param !== 'function'
+  return typeof param === 'function'
 }

@@ -2,18 +2,8 @@ import { isValidObj, isFunction } from './esm/validate.js'
 import { safeObjectsToStrings, stringsToObject } from './esm/utils.js'
 import { EnhancedPathPrefixMatcher } from './esm/PathPrefixMatcher.js'
 import { getCurrentTime } from './esm/utils.js'
-// import { BuiltEvent } from './BuiltEvent.js'
+import { BUILT } from './esm/BuiltEvent.js'
 import { performanceMonitor } from './esm/performanceMonitor.js'
-const BUILT = {
-  ERROR: {
-    LISTENER_OVERFLOW: '事件监听器超出最大限制',
-    LISTENER_REPEAT: '事件监听器重复注册',
-    HANDLER_ILLEGAL: 'handler非法',
-    DEFAULT: '默认错误',
-    TEST: '测试'
-  }
-}
-
 
 // 增强型事件总线核心类
 export class AdvancedEventEmitter {
@@ -23,12 +13,15 @@ export class AdvancedEventEmitter {
   #maxListeners = 200;            // 单个事件最大监听器数量
   #defaultThrottle = 150;         // 默认节流阈值（毫秒）
   #defaultDebounce = 250;         // 默认防抖阈值（毫秒）
+  #pathPrefixMatcher = null;      // 节点映射
   #config = {
     enableAsyncHandling: true,    // 启用异步错误处理
-    strictMode: false             // 严格模式（开发环境建议开启）
+    strictMode: false,           // 严格模式（开发环境建议开启）
+    maxListeners: 200,          // 单个事件最大监听器数量
+    defaultThrottle: 150,       // 默认节流阈值（毫秒）
+    defaultDebounce: 250         // 默认防抖阈值（毫秒）
   };
-  #pathPrefixMatcher = null;      // 节点映射
-  #deBug(str, level = 1, eventType, eventMsg) {
+  #deBug = (str, level = 1, eventType, eventMsg) => {
     switch (level) {
       case 1:
         console.log(str)
@@ -87,8 +80,6 @@ export class AdvancedEventEmitter {
   }
   //2名称空间添加监听
   onAll(eventType, handler, config = {}) {
-    //处理参数讲参数变为名称空间
-    eventType
     //2.1 验证处理器有效性
     this.#validateHandler(handler)
     //2.2 判断事件是否被注册
@@ -103,13 +94,11 @@ export class AdvancedEventEmitter {
   on(eventType, handler, config = {}) {
     //2.1 验证处理器有效性
     this.#validateHandler(handler)
-    //2.3 验证事件类型格式
-    processedEvents.forEach(v => {
-      //判断事件是否被注册
-      if (this.#validateEventKey(v)) return
-    })
-
-    return this // 支持链式调用
+    // 验证事件类型格式
+    this.#validateEventKey(eventType)
+    if (this.#pathPrefixMatcher.isPathPrefix(eventType))
+      return this.onAll(eventType, handler, config = {})
+    return this.onKey(eventType, handler, config = {})
   }
   emit(eventType, ...payload) {
     this.#validateEventKey(eventType)// 验证事件类型格式
@@ -132,18 +121,38 @@ export class AdvancedEventEmitter {
     // 1. 精准匹配事件
     executeHandlers(this.#listeners.get(eventType) || new Set())
     performanceMonitor.finalizeTrace(eventType) // 结束性能追踪
+    return this
   }
-  offKey(eventType, handler) {
-    this.#validateEventKey(eventType)// 验证事件类型格式
+  off(eventType, handler) {
+    if (this.#pathPrefixMatcher.isPathPrefix(eventType))
+      return this.offAll(eventType, handler)
+    return this.offKey(eventType, handler)
+  }
+  offAll(eventType, handler) {
+    console.log('进来了')
+    this.#validateEventKey(eventType + '*')// 验证事件类型格式
+    this.#validateHandler(handler) //验证处理器有效性
+    //获取该名称空间下,所有的注册事件key
+    const eventKeys = this.#pathPrefixMatcher.getPathsByPrefix(eventType)
+    eventKeys.forEach(v => this.#removeListener(v, handler))
+    return this
+  }
+  //移除事件侦听
+  #removeListener(eventType, handler) {
     const listenerGroup = this.#listeners.get(eventType)
     if (!listenerGroup) return
     if (isFunction(handler))
-      this.#dellistenerHandler(listenerGroup)// 遍历查找匹配的处理器
+      this.#dellistenerHandler(listenerGroup, handler)// 遍历查找匹配的处理器
     else if (handler) this.#deBug('offKey:handler非法', 3, this.#EVENTKEY.BUILT.ERROR.HANDLER_ILLEGAL, eventType)
     else listenerGroup = new Set()
     // 非严格模式下 自动资源回收（无监听器时删除//因为严格模式下监听都是必须使用注册的）
     if (!this.#config.strictMode && listenerGroup.size !== 0) return;
     this.#listeners.delete(currentEvent)
+  }
+  offKey(eventType, handler) {
+    this.#validateEventKey(eventType)// 验证事件类型格式
+    this.#removeListener(eventType, handler)
+    return this
   }
   getEvenKey() {
     return Object.freeze(this.#EVENTKEY)
@@ -159,13 +168,16 @@ export class AdvancedEventEmitter {
     this.#maxListeners = limit
     return this
   }
+  setDeBug(fun) {
+    this.#deBug = fun
+  }
   //获取性能指标
   getMetrics(eventType) {
     return performanceMonitor.getMetrics(eventType)
   }
   //===================================非核心api结束===============================================//
   //===================================验证以及处理工厂开始============================================//
-  #dellistenerHandler(listenerGroup) {
+  #dellistenerHandler(listenerGroup, handler) {
     for (const wrapper of listenerGroup) {
       if (wrapper.originalRef !== handler) continue;
       // 清理定时任务和状态
