@@ -36,6 +36,7 @@ export function isValidObj(eventConfig) {
   // 3. 检查是否为普通对象（Plain Object）
   return Object.prototype.toString.call(eventConfig) === '[object Object]';
 }
+// 检测是否为函数
 export function isFunction(param) {
   return typeof param === 'function'
 }

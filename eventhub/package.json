@@ -1,9 +1,18 @@
 {
   "name": "qayrup-eventhub",
-  "version": "1.0.3",
+  "version": "1.0.12",
   "description": "一个轻量级的事件管理器",
-  "main": "./src/index.js",
-  "module": "./src/index.js",
+  "main": "dist/index.js",
+  "module": "./dist/index.mjs",
+  "moduleTips": "当用户使用 ES 模块导入语法来引入时,Node.js 会使用这个文件",
+  "types": "./dist/index.d.ts",
+  "typesTips": "指定类型声明文件的位置",
+  "homepage": "xxx",
+  "homepageTips": "自定义仓库主页地址",
+  "repository": {
+    "url": "xxx",
+    "urlTips": "// 自定义仓库地址"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
