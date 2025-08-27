@@ -1,9 +1,11 @@
 {
   "name": "qayrup-eventhub",
-  "version": "1.0.12",
+  "version": "1.1.0",
+  "type": "module",
   "description": "一个轻量级的事件管理器",
   "main": "dist/index.js",
-  "module": "./dist/index.mjs",
+  "module": "./dist/index.module.js",
+  "unpkg": "./dist/index.umd.js",
   "moduleTips": "当用户使用 ES 模块导入语法来引入时,Node.js 会使用这个文件",
   "types": "./dist/index.d.ts",
   "typesTips": "指定类型声明文件的位置",
@@ -14,7 +16,9 @@
     "urlTips": "// 自定义仓库地址"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "microbundle",
+    "dev": "microbundle watch"
   },
   "keywords": [
     "qayrup",
@@ -23,5 +27,12 @@
   ],
   "author": "qayrup",
   "license": "ISC",
-  "type": "module"
+  "source": "./src/index.js",
+  "exports": {
+    "require": "./build/index.js",
+    "default": "./dist/index.module.js"
+  },
+  "devDependencies": {
+    "microbundle": "^0.15.1"
+  }
 }
