@@ -1,0 +1,41 @@
+{
+  "name": "qayrup-api",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "一个轻量级的事件管理器",
+  "main": "dist/index.js",
+  "module": "./dist/index.module.js",
+  "unpkg": "./dist/index.umd.js",
+  "moduleTips": "当用户使用 ES 模块导入语法来引入时,Node.js 会使用这个文件",
+  "types": "./dist/index.d.ts",
+  "typesTips": "指定类型声明文件的位置",
+  "homepage": "xxx",
+  "homepageTips": "自定义仓库主页地址",
+  "repository": {
+    "url": "xxx",
+    "urlTips": "// 自定义仓库地址"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "microbundle",
+    "dev": "microbundle watch"
+  },
+  "keywords": [
+    "qayrup",
+    "api",
+    "apiService"
+  ],
+  "author": "qayrup",
+  "license": "ISC",
+  "source": "./src/index.js",
+  "exports": {
+    "require": "./build/index.js",
+    "default": "./dist/index.module.js"
+  },
+  "devDependencies": {
+    "microbundle": "^0.15.1"
+  },
+  "dependencies": {
+    "qayrup-eventhub": "^1.1.0"
+  }
+}
