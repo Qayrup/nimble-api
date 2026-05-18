@@ -1,0 +1,326 @@
+import { isValidObj } from './validate';
+import { safeObjectsToStrings, stringsToObject } from './objectTransformation';
+import { EnhancedPathPrefixMatcher } from './PathPrefixMatcher';
+import { BUILT } from './BuiltEvent';
+import { performanceMonitor } from './performanceMonitor';
+import { createFlowController } from './flowController';
+import type { FlowControlledHandler } from './flowController';
+import { getCurrentTime, isDuplicateHandler, dellistenerHandler } from './utils';
+import type { WrappedHandler } from './utils';
+import { deBug } from './executionError';
+
+function normalizeMode(mode: FlowMode): 'debounce' | 'throttle' {
+  return mode === 't' ? 'throttle' : mode === 'd' ? 'debounce' : mode;
+}
+
+export interface EventHubSettings {
+  enableAsyncHandling?: boolean;
+  strictMode?: boolean;
+  maxListeners?: number;
+  maxNamespaceBatchSize?: number;
+  defaultThrottle?: number;
+  defaultDebounce?: number;
+  enabled?: boolean;
+}
+
+export type FlowMode = 'debounce' | 'throttle' | 't' | 'd';
+
+export interface ListenerOptions {
+  mode?: FlowMode;
+  timing?: number;
+  once?: boolean;
+}
+
+export type EventHandler = (...args: unknown[]) => void;
+
+type InternalHandler = WrappedHandler | FlowControlledHandler;
+
+// 动态事件键对象的宽松类型
+export type EventKey = Record<string, unknown>;
+
+// 增强型事件总线核心类
+export class AdvancedEventEmitter {
+  // 动态生成的事件键对象（运行时结构由用户配置决定，无法静态约束）
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  EVENTKEY: Record<string, any> = {};
+
+  // 私有属性初始化
+  #listeners = new Map<string, Set<InternalHandler>>();
+  #pathPrefixMatcher: EnhancedPathPrefixMatcher | null = null;
+  #config: Required<EventHubSettings> = {
+    enableAsyncHandling: true,
+    strictMode: false,
+    maxListeners: 200,
+    maxNamespaceBatchSize: 500,
+    defaultThrottle: 150,
+    defaultDebounce: 250,
+    enabled: false
+  };
+  #deBug: (msg: string, eventType?: string, handler?: unknown) => never = deBug;
+
+  // 实例化
+  constructor(eventConfig: Record<string, unknown> = {}, settingConfig: EventHubSettings = {}) {
+    // 判断是否为普通对象,不是则报错
+    if (!isValidObj(eventConfig)) this.#deBug('eventConfig必定为普通对象');
+    // 转化为路径数组
+    const paths = safeObjectsToStrings({ eventConfig, BUILT });
+    // 将转化的数组返回一个绝对正确的路径对象
+    this.EVENTKEY = stringsToObject(paths) as Record<string, unknown>;
+    // 初始化事件注册表
+    this.#initializeEventRegistry(paths);
+    // 配置设置（校验防止未知配置项）
+    const validKeys: (keyof EventHubSettings)[] = ['enableAsyncHandling', 'strictMode', 'maxListeners', 'maxNamespaceBatchSize', 'defaultThrottle', 'defaultDebounce', 'enabled'];
+    for (const key of Object.keys(settingConfig)) {
+      if (!(validKeys as string[]).includes(key)) {
+        throw new Error(`未知配置项: ${key}，有效配置项: ${validKeys.join(', ')}`);
+      }
+    }
+    Object.assign(this.#config, settingConfig);
+    performanceMonitor.toggle(settingConfig.enabled ?? false);
+  }
+
+  // 初始化事件注册表（从配置中提取所有事件类型）
+  #initializeEventRegistry(eventConfig: string[]): void {
+    eventConfig.forEach(event => this.#listeners.set(event, new Set()));
+    this.#pathPrefixMatcher ??= new EnhancedPathPrefixMatcher(Array.from(this.#listeners.keys()));
+  }
+
+  #registered(eventType: string, handler: EventHandler, config: ListenerOptions = {}): void {
+    // 获取被注册的事件函数Set对象
+    const listenerGroup = this.#listeners.get(eventType)!;
+    // 容量校验与溢出处理
+    if (listenerGroup.size >= this.#config.maxListeners)
+      return this.#deBug('事件监听器超出最大限制', this.EVENTKEY.BUILT.ERROR.LISTENER_OVERFLOW, eventType);
+    // 重复注册检查
+    if (isDuplicateHandler(listenerGroup as Set<WrappedHandler>, handler))
+      return this.#deBug('重复注册相同处理器', this.EVENTKEY.BUILT.ERROR.LISTENER_REPEAT, eventType);
+    // 应用处理器包装（节流/防抖/异步处理等）并添加对应事件处理器
+    listenerGroup.add(this.#applyHandlerWrapper(eventType, handler, config));
+  }
+
+  // 核心事件订阅方法（单事件类型和配置选项）
+  onKey(eventType: string, handler: EventHandler, config: ListenerOptions = {}): this {
+    this.#validateHandler(handler, eventType);
+    this.#validateEventKey(eventType);
+    this.#registered(eventType, handler, config);
+    return this;
+  }
+
+  // 名称空间添加监听
+  onAll(eventType: string, handler: EventHandler, config: ListenerOptions = {}): this {
+    this.#validateHandler(handler, eventType);
+    this.#validateEventKey(eventType + '*');
+    // 获取该名称空间下,所有的注册事件key
+    const eventKeys = this.#pathPrefixMatcher!.getPathsByPrefix(eventType);
+    // 批量注册上限保护
+    if (eventKeys.length > this.#config.maxNamespaceBatchSize) {
+      this.#deBug(`命名空间批量注册超过上限: ${eventType} (${eventKeys.length}个事件)`, this.EVENTKEY.BUILT.ERROR.LISTENER_OVERFLOW);
+    }
+    // 将所有的事件侦听注册
+    eventKeys.forEach(v => this.#registered(v, handler, config));
+    return this;
+  }
+
+  // 核心事件订阅方法（支持多事件类型和配置选项）
+  on(eventType: string, handler: EventHandler, config: ListenerOptions = {}): this {
+    this.#validateHandler(handler, eventType);
+    this.#validateEventKey(eventType);
+    if (this.#pathPrefixMatcher!.isPathPrefix(eventType))
+      return this.onAll(eventType, handler, config);
+    return this.onKey(eventType, handler, config);
+  }
+
+  emit(eventType: string, ...payload: unknown[]): this {
+    this.#validateEventKey(eventType);
+    performanceMonitor.startTrace(eventType);
+
+    const executeHandlers = (handlers: Set<InternalHandler>): void => {
+      for (const handler of handlers) {
+        performanceMonitor.recordInvocation(eventType);
+        const start = getCurrentTime();
+        try {
+          handler(...payload);
+        } catch (error) {
+          try {
+            this.#deBug(String(error), eventType, (handler as WrappedHandler).originalRef || handler);
+          } catch {
+            console.error(`[qayrup-eventhub] Unhandled error for event "${eventType}":`, error);
+          }
+        } finally {
+          const duration = getCurrentTime() - start;
+          performanceMonitor.updateDuration(eventType, duration);
+        }
+      }
+    };
+
+    // 精准匹配事件（避免无监听器时创建临时 Set）
+    const handlers = this.#listeners.get(eventType);
+    if (handlers && handlers.size > 0) {
+      executeHandlers(handlers);
+    }
+    return this;
+  }
+
+  off(eventType: string, handler: EventHandler): this {
+    if (this.#pathPrefixMatcher!.isPathPrefix(eventType))
+      return this.offAll(eventType, handler);
+    return this.offKey(eventType, handler);
+  }
+
+  offAll(eventType: string, handler: EventHandler): this {
+    this.#validateEventKey(eventType + '*');
+    this.#validateHandler(handler, eventType);
+    const eventKeys = this.#pathPrefixMatcher!.getPathsByPrefix(eventType);
+    eventKeys.forEach(v => this.#removeListener(v, handler));
+    return this;
+  }
+
+  // 移除事件侦听
+  #removeListener(eventType: string, handler: EventHandler): void {
+    const listenerGroup = this.#listeners.get(eventType);
+    if (!listenerGroup) return;
+    dellistenerHandler(listenerGroup as Set<WrappedHandler>, handler);
+    // 非严格模式下 自动资源回收（无监听器时删除）
+    if (!this.#config.strictMode && listenerGroup.size !== 0) return;
+    this.#listeners.delete(eventType);
+  }
+
+  offKey(eventType: string, handler: EventHandler): this {
+    this.#validateEventKey(eventType);
+    this.#validateHandler(handler, eventType);
+    this.#removeListener(eventType, handler);
+    return this;
+  }
+
+  getEvenKey(): Readonly<Record<string, unknown>> {
+    return Object.freeze(this.EVENTKEY);
+  }
+
+  // === 非核心api ===
+
+  // 设置监听器上限
+  setListenerLimit(limit: number): this {
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new TypeError('监听器上限必须为至少1的整数');
+    }
+    this.#config.maxListeners = limit;
+    return this;
+  }
+
+  setDeBug(fun: (msg: string, eventType?: string, handler?: unknown) => never): void {
+    this.#deBug = fun;
+  }
+
+  // 销毁实例，清理所有监听器、定时器和状态
+  destroy(): void {
+    for (const handlers of this.#listeners.values()) {
+      for (const handler of handlers) {
+        const state = (handler as WrappedHandler).controlState;
+        if (state?.scheduledTask) {
+          clearTimeout(state.scheduledTask);
+          state.isPending = false;
+        }
+      }
+    }
+    this.#listeners.clear();
+    this.#pathPrefixMatcher?.clear();
+    this.EVENTKEY = {};
+    performanceMonitor.resetAll();
+  }
+
+  // 获取性能指标
+  getMetrics(eventType: string) {
+    return performanceMonitor.getMetrics(eventType);
+  }
+
+  // === 验证以及处理工厂 ===
+
+  // 验证处理器有效性
+  #validateHandler(handler: unknown, eventType: string): void {
+    if (typeof handler === 'function') return;
+    this.#deBug('事件处理器必须为函数', eventType);
+  }
+
+  // 安全验证方法
+  #validateEventKey(eventType: string): void {
+    if (eventType.endsWith('*')) return this.#validateNamespace(eventType);
+    return this.#validateEventType(eventType);
+  }
+
+  #validateEventType(eventType: string): void {
+    const isEvent = this.#listeners.has(eventType);
+    if (isEvent) return;
+    const isStrictMode = this.#config.strictMode;
+    if (isStrictMode) return this.#deBug(`未注册的事件: ${eventType}`);
+    this.#listeners.set(eventType, new Set());
+    this.#pathPrefixMatcher?.addPath(eventType);
+  }
+
+  #validateNamespace(eventType: string): void {
+    if (!this.#config.strictMode) return;
+    if (!this.#pathPrefixMatcher!.isPathPrefix(eventType.replace('*', '')))
+      return this.#deBug(`未注册的命名空间事件: ${eventType}`);
+  }
+
+  // 处理器包装流水线
+  #applyHandlerWrapper(
+    eventType: string,
+    originalHandler: EventHandler,
+    config: ListenerOptions
+  ): InternalHandler {
+    let wrappedHandler: InternalHandler = originalHandler as WrappedHandler;
+
+    // 流量控制模式（防抖/节流）
+    if (config.mode) {
+      const mode = normalizeMode(config.mode);
+      const timing = config.timing ?? this.#getTimingConfig(mode);
+      wrappedHandler = createFlowController(eventType, originalHandler, mode, timing);
+    }
+
+    // 异步错误处理包装
+    if (this.#config.enableAsyncHandling && isAsyncFunction(wrappedHandler)) {
+      wrappedHandler = this.#wrapAsyncHandler(wrappedHandler, eventType);
+    }
+
+    // 单次执行包装
+    if (config.once) {
+      const tempWrapper = (...params: unknown[]) => {
+        wrappedHandler(...params);
+        this.off(eventType, originalHandler);
+      };
+      (tempWrapper as WrappedHandler).originalRef = originalHandler;
+      return tempWrapper as unknown as InternalHandler;
+    }
+
+    // 挂载原始处理器引用
+    (wrappedHandler as WrappedHandler).originalRef = originalHandler;
+    return wrappedHandler;
+  }
+
+  // 获取默认时间配置
+  #getTimingConfig(mode: 'debounce' | 'throttle'): number {
+    return mode === 'debounce' ? this.#config.defaultDebounce : this.#config.defaultThrottle;
+  }
+
+  // 异步错误处理包装器
+  #wrapAsyncHandler(handler: InternalHandler, eventType: string): InternalHandler {
+    const asyncWrapper = async (...params: unknown[]) => {
+      try {
+        await (handler as (...args: unknown[]) => Promise<unknown>)(...params);
+      } catch (error) {
+        try {
+          this.#deBug(String(error), eventType, handler);
+        } catch {
+          console.error(`[qayrup-eventhub] Unhandled async error for event "${eventType}":`, error);
+        }
+      }
+    };
+    return asyncWrapper as unknown as InternalHandler;
+  }
+}
+
+function isAsyncFunction(fn: unknown): boolean {
+  return Object.prototype.toString.call(fn) === '[object AsyncFunction]';
+}
+
+export default AdvancedEventEmitter;

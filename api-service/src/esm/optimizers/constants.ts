@@ -1,6 +1,3 @@
-/**
- * 优化类型常量
- */
 export const OPTIMIZE_TYPES = {
   DEBOUNCE: 'debounce',
   THROTTLE: 'throttle',
@@ -8,13 +5,6 @@ export const OPTIMIZE_TYPES = {
   LINK_LOCK: 'linkLock',
   RETURN_CONTROL: 'return',
   DEBOUNCE_THROTTLE: 'debounceThrottle'
-};
+} as const;
 
-/**
- * 默认优化参数
- */
-export const DEFAULT_OPTIMIZATION_PARAMS = {
-  DEBOUNCE: 3000,
-  THROTTLE: 300,
-  DEBOUNCE_THROTTLE: 300
-};
+export type OptimizeType = (typeof OPTIMIZE_TYPES)[keyof typeof OPTIMIZE_TYPES];

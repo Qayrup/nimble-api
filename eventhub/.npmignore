@@ -1,6 +1,5 @@
-#列举发布包时不想包含的文件
 /src
 /node_modules
 
 tsconfig.json
-tsup.config.ts
+babel.config.json

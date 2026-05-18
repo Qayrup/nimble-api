@@ -1,24 +1,23 @@
 {
   "name": "qayrup-eventhub",
   "version": "1.1.0",
-  "type": "module",
   "description": "一个轻量级的事件管理器",
-  "main": "dist/index.js",
+  "main": "./dist/index.js",
   "module": "./dist/index.module.js",
   "unpkg": "./dist/index.umd.js",
-  "moduleTips": "当用户使用 ES 模块导入语法来引入时,Node.js 会使用这个文件",
   "types": "./dist/index.d.ts",
-  "typesTips": "指定类型声明文件的位置",
-  "homepage": "xxx",
-  "homepageTips": "自定义仓库主页地址",
+  "homepage": "https://github.com/qayrup/qayrup-npm",
   "repository": {
-    "url": "xxx",
-    "urlTips": "// 自定义仓库地址"
+    "type": "git",
+    "url": "https://github.com/qayrup/qayrup-npm.git"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "microbundle",
-    "dev": "microbundle watch"
+    "test": "vitest run",
+    "clean": "rimraf dist",
+    "build": "npm run clean && microbundle --tsconfig tsconfig.build.json",
+    "dev": "microbundle watch",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "qayrup",
@@ -27,12 +26,26 @@
   ],
   "author": "qayrup",
   "license": "ISC",
-  "source": "./src/index.js",
+  "source": "./src/index.ts",
+  "files": [
+    "dist"
+  ],
   "exports": {
-    "require": "./build/index.js",
-    "default": "./dist/index.module.js"
+    ".": {
+      "import": "./dist/index.module.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.module.js"
+    }
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=14"
   },
   "devDependencies": {
+    "@babel/plugin-transform-class-properties": "^7.28.6",
+    "@babel/plugin-transform-private-methods": "^7.28.6",
+    "@babel/preset-typescript": "^7.24.0",
     "microbundle": "^0.15.1"
   }
 }

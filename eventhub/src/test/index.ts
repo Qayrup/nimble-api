@@ -1,5 +1,5 @@
 // import { createAdvancedEvent } from '../index.js'
-// const globalEventBus = new createAdvancedEvent({}, { enabled: true })
+// const globalEventBus = createAdvancedEvent({}, { enabled: true })
 // const EVENTKEY = globalEventBus.getEvenKey()
 // function aaa(e) {
 //   console.log('EVENTKEY.$BUILT, aaaEVENTKEY.$BUILT, aaaEVENTKEY.$BUILT, aaaEVENTKEY.$BUILT, aaaEVENTKEY.$BUILT, aaa')
@@ -50,7 +50,7 @@
 import { initAdvancedEvent, createAdvancedEvent } from '../index.js'
 import eventhub from '../index.js'
 initAdvancedEvent()
-const globalEventBus = new createAdvancedEvent({}, { enabled: true })
+createAdvancedEvent({}, { enabled: true });
 const EVENTKEY = eventhub.getEvenKey()
 eventhub.onKey(EVENTKEY.BUILT.ERROR.TEST, function (e) {
   console.log(e,
@@ -61,7 +61,7 @@ eventhub.onKey(EVENTKEY.BUILT.ERROR.TEST, function (e) {
 })
 
 eventhub.onKey(EVENTKEY.BUILT.ERROR.TEST, async function (e) {
-  await new Promise(res => {
+  await new Promise<void>(res => {
     setTimeout(_ => res(), 1000)
   })
   console.log(e,
@@ -70,8 +70,8 @@ eventhub.onKey(EVENTKEY.BUILT.ERROR.TEST, async function (e) {
 }, {
   mode: 't'
 })
-eventhub.onAll(EVENTKEY.$BUILT, function (e) {
-  console.log(eventhub.getMetrics(EVENTKEY.BUILT.ERROR.TEST))
-})
-setInterval(e => eventhub.emit(EVENTKEY.BUILT.ERROR.TEST, 'e'), 100)
+eventhub.onAll(EVENTKEY.$BUILT, function (_e) {
+  console.log(eventhub.getMetrics(EVENTKEY.BUILT.ERROR.TEST));
+});
+setInterval(() => eventhub.emit(EVENTKEY.BUILT.ERROR.TEST, 'e'), 100);
 
