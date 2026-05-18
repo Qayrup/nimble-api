@@ -35,7 +35,7 @@ describe('createApiService', () => {
         eventErrors: { default: 'TEST.ERROR' },
       },
     });
-    const method = (api as Record<string, unknown>).testEndpointAPI;
+    const method = (api as unknown as Record<string, unknown>).testEndpointAPI;
     expect(typeof method).toBe('function');
   });
 });
