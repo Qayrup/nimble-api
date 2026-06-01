@@ -127,10 +127,7 @@ export const apiProxyHandler: ProxyHandler<ApiService> = {
     }
     if (typeof prop === 'string' && prop.endsWith('LINKAPI')) {
       const apiKey = prop.slice(0, -7);
-      if (apiKey in target) {
-        return (target as unknown as Record<string, unknown>)[apiKey];
-      }
-      return target.getAPIMethod(apiKey);
+      return target.getAPIMethodLink(apiKey);
     }
     return Reflect.get(target, prop, _receiver);
   }

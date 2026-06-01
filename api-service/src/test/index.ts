@@ -1,5 +1,8 @@
 import { initApiService, OPTIMIZE_TYPES } from '../index';
 
+// 辅助类型：optimize() 返回的代理对象可动态调用任意 *API 方法
+type OptimizedProxy = Record<string, (...args: unknown[]) => Promise<unknown>>;
+
 const configAAA = {
   phoneLogin: {
     url: '/system/login/phone/{tel}/{phoneCaptcha}',
@@ -36,11 +39,11 @@ const proxyObj = new Proxy(obj, {
 
 console.log('-----------------------------------验证自定义proxyObj switch开始-------------------------------------------');
 async function aaa() {
-  const aaa = apiService.optimize('switchLock', proxyObj).phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 });
-  const aaa2 = apiService.optimize('switchLock', proxyObj).phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 });
-  const aaa3 = apiService.optimize('switchLock', proxyObj).phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 });
+  const aaa = (apiService.optimize('switchLock', proxyObj) as unknown as OptimizedProxy).phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 });
+  const aaa2 = (apiService.optimize('switchLock', proxyObj) as unknown as OptimizedProxy).phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 });
+  const aaa3 = (apiService.optimize('switchLock', proxyObj) as unknown as OptimizedProxy).phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 });
   console.log(
-    await apiService.optimize('switchLock', proxyObj).phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 }),
+    await (apiService.optimize('switchLock', proxyObj) as unknown as OptimizedProxy).phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 }),
   );
   console.log('-----------------------------------开始-------------------------------------------');
   aaa.then((res: unknown) => {
@@ -58,11 +61,11 @@ console.log('-----------------------------------验证自定义proxyObj switch�
 
 console.log('-----------------------------------验证自维护锁 switch开始-------------------------------------------');
 async function aaa1() {
-  const aaa1 = apiService.optimize('switchLock').phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 });
-  const aaa2 = apiService.optimize('switchLock').phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 });
-  const aaa3 = apiService.optimize('switchLock').phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 });
+  const aaa1 = (apiService.optimize('switchLock') as unknown as OptimizedProxy).phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 });
+  const aaa2 = (apiService.optimize('switchLock') as unknown as OptimizedProxy).phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 });
+  const aaa3 = (apiService.optimize('switchLock') as unknown as OptimizedProxy).phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 });
   console.log(
-    await apiService.optimize('switchLock').phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 }),
+    await (apiService.optimize('switchLock') as unknown as OptimizedProxy).phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 }),
   );
   console.log('-----------------------------------开始-------------------------------------------');
   aaa1.then((res: unknown) => {
@@ -80,11 +83,11 @@ console.log('-----------------------------------验证自维护锁 switch结束-
 
 console.log('-----------------------------------验证防抖 debounce开始-------------------------------------------');
 async function aaa2() {
-  const aaa1 = apiService.optimize('debounce').phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 });
-  const aaa2 = apiService.optimize('debounce').phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 });
-  const aaa3 = apiService.optimize('debounce').phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 });
+  const aaa1 = (apiService.optimize('debounce') as unknown as OptimizedProxy).phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 });
+  const aaa2 = (apiService.optimize('debounce') as unknown as OptimizedProxy).phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 });
+  const aaa3 = (apiService.optimize('debounce') as unknown as OptimizedProxy).phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 });
   console.log(
-    await apiService.optimize('debounce').phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 }),
+    await (apiService.optimize('debounce') as unknown as OptimizedProxy).phoneLoginAPI({ tel: 123, phoneCaptcha: 1212 }),
   );
   console.log('-----------------------------------开始-------------------------------------------');
   aaa1.then((res: unknown) => {
