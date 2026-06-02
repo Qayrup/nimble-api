@@ -78,9 +78,9 @@ function wrapUniTask(raw: UniTaskResult): RequestTask {
  */
 export class BaseApi {
   /** 事件队列缓存 */
-  static EVENT_QUEUE: QueueEvent[] = [];
+  EVENT_QUEUE: QueueEvent[] = [];
   /** 批量处理定时器句柄 */
-  static BATCH_TIMER: Promise<void> | null = null;
+  BATCH_TIMER: Promise<void> | null = null;
 
   apiConfig: ApiConfig;
   enableLogging: boolean;
@@ -89,8 +89,8 @@ export class BaseApi {
   cacheTimers = new Map<string, ReturnType<typeof setTimeout>>();
   inFlightRequests = new Map<string, Promise<unknown>>();
   requestTasks = new Map<string, RequestTask>();
-  optimizationConfig = new Map<string, OptimizationConfig>();
   optimizeProxyCache = new Map<string, Record<string, unknown>>();
+  optimizedMethodCache = new Map<string, unknown>();
   switchLockMap = new Map<symbol, { value: boolean }>();
   debounceCache = new Map<symbol, { timer: ReturnType<typeof setTimeout> | null; lastResolve: ((v: unknown) => void) | null; lastReject: ((e: unknown) => void) | null }>();
   throttleCache = new Map<symbol, { lastCall: number; lastPromise: Promise<unknown> | null }>();
@@ -134,8 +134,13 @@ export class BaseApi {
         }
 
         if (typeof prop === 'string' && prop.endsWith('API')) {
+          const optimizedKey = `${cacheKey}_${prop}`;
+          const cached = self.optimizedMethodCache.get(optimizedKey);
+          if (cached !== undefined) return cached;
           const originalMethod = self.getAPIMethod(prop);
-          return self.applyOptimization(originalMethod, optimization);
+          const optimizedMethod = self.applyOptimization(originalMethod, optimization);
+          self.optimizedMethodCache.set(optimizedKey, optimizedMethod);
+          return optimizedMethod;
         }
 
         return Reflect.get(_target, prop);
@@ -149,7 +154,7 @@ export class BaseApi {
   /**
    * 应用优化到方法
    */
-  applyOptimization<T = unknown>(method: MethodWithMethodId<T>, optimization: OptimizationConfig): MethodWithMethodId<T> {
+  applyOptimization<T = unknown>(method: MethodWithMethodId<T>, optimization: OptimizationConfig): MethodWithMethodId<T> | MethodWithMethodId<T | null> {
     switch (optimization.type) {
       case 'debounce':
         return optimizers.debounceOptimizer(method, this.debounceCache, ...optimization.args as [number?]);
@@ -308,7 +313,7 @@ export class BaseApi {
 
       successEvents.forEach((sEvent) => {
         if (sEvent) {
-          BaseApi.queueEvent({
+          this.queueEvent({
             successEvent: sEvent,
             errorEvent: null,
             payload: result,
@@ -322,7 +327,7 @@ export class BaseApi {
 
       errorEvents.forEach((eEvent) => {
         if (eEvent) {
-          BaseApi.queueEvent({
+          this.queueEvent({
             successEvent: null,
             errorEvent: eEvent,
             payload: result,
@@ -345,7 +350,7 @@ export class BaseApi {
   /**
    * 将事件加入队列（微任务批量处理）
    */
-  static queueEvent(event: QueueEvent): void {
+  queueEvent(event: QueueEvent): void {
     this.EVENT_QUEUE.push(event);
 
     if (!this.BATCH_TIMER) {
@@ -359,7 +364,7 @@ export class BaseApi {
   /**
    * 批量派发队列中的事件
    */
-  static flushEvents(): void {
+  flushEvents(): void {
     const events = this.EVENT_QUEUE.splice(0);
     const eventMap = new Map<string, unknown[]>();
 
@@ -387,11 +392,18 @@ export class BaseApi {
    */
   destroy(): void {
     // 取消待处理的批量派发定时器
-    if (BaseApi.BATCH_TIMER) {
-      BaseApi.BATCH_TIMER = null;
+    if (this.BATCH_TIMER) {
+      this.BATCH_TIMER = null;
     }
-    // 清空静态事件队列，防止内存泄漏
-    BaseApi.EVENT_QUEUE.length = 0;
+    // 清空事件队列
+    this.EVENT_QUEUE.length = 0;
+
+    // 中断所有进行中的请求
+    for (const task of this.requestTasks.values()) {
+      if (typeof task.abort === 'function') {
+        task.abort();
+      }
+    }
 
     // 清理缓存定时器
     for (const timer of this.cacheTimers.values()) {
@@ -411,8 +423,8 @@ export class BaseApi {
     this.switchLockMap.clear();
     this.inFlightRequests.clear();
     this.requestTasks.clear();
-    this.optimizationConfig.clear();
     this.optimizeProxyCache.clear();
+    this.optimizedMethodCache.clear();
   }
 }
 

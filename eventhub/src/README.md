@@ -69,7 +69,7 @@ const bus = createAdvancedEvent({
 });
 
 // 生成的事件键: user:login, user:logout, user:profile:update, user:profile:delete
-console.log(bus.getEvenKey());
+console.log(bus.getEventKey());
 ```
 
 ### 内置事件
@@ -144,12 +144,12 @@ bus.off('user', handler);          // 移除 user 命名空间下所有匹配
 
 批量移除命名空间下的监听器。
 
-#### getEvenKey()
+#### getEventKey()
 
 获取只读的事件键对象。
 
 ```ts
-const keys = bus.getEvenKey();
+const keys = bus.getEventKey();
 // => { user: { login: 'user:login', ... }, BUILT: { ERROR: { ... } } }
 ```
 

@@ -35,9 +35,6 @@ export type EventHandler = (...args: unknown[]) => void;
 
 type InternalHandler = WrappedHandler | FlowControlledHandler;
 
-// 动态事件键对象的宽松类型
-export type EventKey = Record<string, unknown>;
-
 // 增强型事件总线核心类
 export class AdvancedEventEmitter {
   // 动态生成的事件键对象（运行时结构由用户配置决定，无法静态约束）
@@ -132,12 +129,13 @@ export class AdvancedEventEmitter {
 
   emit(eventType: string, ...payload: unknown[]): this {
     this.#validateEventKey(eventType);
+    const monitoringEnabled = this.#config.enabled;
     performanceMonitor.startTrace(eventType);
 
     const executeHandlers = (handlers: Set<InternalHandler>): void => {
       for (const handler of handlers) {
         performanceMonitor.recordInvocation(eventType);
-        const start = getCurrentTime();
+        const start = monitoringEnabled ? getCurrentTime() : 0;
         try {
           handler(...payload);
         } catch (error) {
@@ -147,8 +145,10 @@ export class AdvancedEventEmitter {
             console.error(`[qayrup-eventhub] Unhandled error for event "${eventType}":`, error);
           }
         } finally {
-          const duration = getCurrentTime() - start;
-          performanceMonitor.updateDuration(eventType, duration);
+          if (monitoringEnabled) {
+            const duration = getCurrentTime() - start;
+            performanceMonitor.updateDuration(eventType, duration);
+          }
         }
       }
     };
@@ -192,7 +192,7 @@ export class AdvancedEventEmitter {
     return this;
   }
 
-  getEvenKey(): Readonly<Record<string, unknown>> {
+  getEventKey(): Readonly<Record<string, unknown>> {
     return Object.freeze(this.EVENTKEY);
   }
 

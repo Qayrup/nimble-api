@@ -8,7 +8,3 @@ export function isValidObj(eventConfig: unknown): eventConfig is Record<string, 
   }
   return Object.prototype.toString.call(eventConfig) === '[object Object]';
 }
-
-export function isFunction(param: unknown): param is (...args: unknown[]) => unknown {
-  return typeof param === 'function';
-}

@@ -28,16 +28,6 @@ export const performanceMonitor = {
     });
   },
 
-  trace(event: string): void {
-    if (!this.enabled || this.metrics.has(event)) return;
-    this.metrics.set(event, {
-      startTime: getCurrentTime(),
-      invocationCount: 0,
-      maxDuration: 0,
-      totalDuration: 0
-    });
-  },
-
   recordInvocation(event: string): void {
     if (!this.enabled) return;
     const metric = this.metrics.get(event);

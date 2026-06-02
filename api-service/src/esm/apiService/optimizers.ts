@@ -132,7 +132,7 @@ export function switchLockOptimizer<T = unknown>(
   method: MethodWithMethodId<T>,
   switchLockMap: Map<symbol, LockProxy>,
   proxy?: LockProxy
-): MethodWithMethodId<T> {
+): MethodWithMethodId<T | null> {
   const methodId = method.methodId;
   if (!methodId) throw new Error('无法为方法创建锁：缺少方法标识符');
 
@@ -146,8 +146,8 @@ export function switchLockOptimizer<T = unknown>(
     lock = switchLockMap.get(methodId)!;
   }
 
-  const wrapped = async function (this: unknown, ...args: unknown[]): Promise<T> {
-    if (lock.value) return null as T;
+  const wrapped = async function (this: unknown, ...args: unknown[]): Promise<T | null> {
+    if (lock.value) return null;
     try {
       lock.value = true;
       return await method.apply(this, args);
@@ -156,7 +156,7 @@ export function switchLockOptimizer<T = unknown>(
     }
   };
 
-  (wrapped as MethodWithMethodId).methodId = methodId;
+  (wrapped as MethodWithMethodId<T | null>).methodId = methodId;
   return wrapped;
 }
 

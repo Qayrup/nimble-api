@@ -17,7 +17,7 @@ describe('createAdvancedEvent', () => {
   });
 
   it('should generate EVENTKEY with BUILT errors', () => {
-    const keys = bus.getEvenKey();
+    const keys = bus.getEventKey();
     expect(keys).toHaveProperty('BUILT');
     expect((keys as Record<string, unknown>).BUILT).toHaveProperty('ERROR');
   });

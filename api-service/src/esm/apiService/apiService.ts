@@ -22,14 +22,13 @@ export class ApiService extends BaseApi {
     });
   }
 
-  _validateConfiguration(configObj: ApiConfig[string], apiKey: string): boolean {
+  _validateConfiguration(configObj: ApiConfig[string], apiKey: string): void {
     if (!configObj) throw new Error(`${apiKey}:没有这个api`);
     if (!configObj.url) throw new Error(`${apiKey}:url无效`);
     if (!Array.isArray(configObj.eventSuccess) || configObj.eventSuccess.length < 1)
       throw new Error(`${apiKey}:eventSuccess 无效`);
     if (!configObj.eventErrors || !configObj.eventErrors.default)
       throw new Error(`${apiKey}:eventErrors 无效`);
-    return true;
   }
 
   /**
