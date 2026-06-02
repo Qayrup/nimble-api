@@ -5,7 +5,7 @@ import { BUILT } from './BuiltEvent';
 import { performanceMonitor } from './performanceMonitor';
 import { createFlowController } from './flowController';
 import type { FlowControlledHandler } from './flowController';
-import { getCurrentTime, isDuplicateHandler, dellistenerHandler } from './utils';
+import { getCurrentTime } from './utils';
 import type { WrappedHandler } from './utils';
 import { deBug } from './executionError';
 
@@ -42,8 +42,13 @@ export class AdvancedEventEmitter {
   EVENTKEY: Record<string, any> = {};
 
   // 私有属性初始化
-  #listeners = new Map<string, Set<InternalHandler>>();
+  #listeners = new Map<string, Map<EventHandler, InternalHandler>>();
   #pathPrefixMatcher: EnhancedPathPrefixMatcher | null = null;
+
+  /** 路径前缀匹配器 getter — 初始化后保证非空 */
+  get #matcher(): EnhancedPathPrefixMatcher {
+    return this.#pathPrefixMatcher as EnhancedPathPrefixMatcher;
+  }
   #config: Required<EventHubSettings> = {
     enableAsyncHandling: true,
     strictMode: false,
@@ -78,21 +83,18 @@ export class AdvancedEventEmitter {
 
   // 初始化事件注册表（从配置中提取所有事件类型）
   #initializeEventRegistry(eventConfig: string[]): void {
-    eventConfig.forEach(event => this.#listeners.set(event, new Set()));
+    eventConfig.forEach(event => this.#listeners.set(event, new Map()));
     this.#pathPrefixMatcher ??= new EnhancedPathPrefixMatcher(Array.from(this.#listeners.keys()));
   }
 
   #registered(eventType: string, handler: EventHandler, config: ListenerOptions = {}): void {
-    // 获取被注册的事件函数Set对象
-    const listenerGroup = this.#listeners.get(eventType)!;
-    // 容量校验与溢出处理
+    const listenerGroup = this.#listeners.get(eventType);
+    if (!listenerGroup) return;
     if (listenerGroup.size >= this.#config.maxListeners)
       return this.#deBug('事件监听器超出最大限制', this.EVENTKEY.BUILT.ERROR.LISTENER_OVERFLOW, eventType);
-    // 重复注册检查
-    if (isDuplicateHandler(listenerGroup as Set<WrappedHandler>, handler))
+    if (listenerGroup.has(handler))
       return this.#deBug('重复注册相同处理器', this.EVENTKEY.BUILT.ERROR.LISTENER_REPEAT, eventType);
-    // 应用处理器包装（节流/防抖/异步处理等）并添加对应事件处理器
-    listenerGroup.add(this.#applyHandlerWrapper(eventType, handler, config));
+    listenerGroup.set(handler, this.#applyHandlerWrapper(eventType, handler, config));
   }
 
   // 核心事件订阅方法（单事件类型和配置选项）
@@ -108,7 +110,7 @@ export class AdvancedEventEmitter {
     this.#validateHandler(handler, eventType);
     this.#validateEventKey(eventType + '*');
     // 获取该名称空间下,所有的注册事件key
-    const eventKeys = this.#pathPrefixMatcher!.getPathsByPrefix(eventType);
+    const eventKeys = this.#matcher.getPathsByPrefix(eventType);
     // 批量注册上限保护
     if (eventKeys.length > this.#config.maxNamespaceBatchSize) {
       this.#deBug(`命名空间批量注册超过上限: ${eventType} (${eventKeys.length}个事件)`, this.EVENTKEY.BUILT.ERROR.LISTENER_OVERFLOW);
@@ -122,7 +124,7 @@ export class AdvancedEventEmitter {
   on(eventType: string, handler: EventHandler, config: ListenerOptions = {}): this {
     this.#validateHandler(handler, eventType);
     this.#validateEventKey(eventType);
-    if (this.#pathPrefixMatcher!.isPathPrefix(eventType))
+    if (this.#matcher.isPathPrefix(eventType))
       return this.onAll(eventType, handler, config);
     return this.onKey(eventType, handler, config);
   }
@@ -130,11 +132,15 @@ export class AdvancedEventEmitter {
   emit(eventType: string, ...payload: unknown[]): this {
     this.#validateEventKey(eventType);
     const monitoringEnabled = this.#config.enabled;
-    performanceMonitor.startTrace(eventType);
+    if (monitoringEnabled) {
+      performanceMonitor.startTrace(eventType);
+    }
 
-    const executeHandlers = (handlers: Set<InternalHandler>): void => {
-      for (const handler of handlers) {
-        performanceMonitor.recordInvocation(eventType);
+    const executeHandlers = (handlers: Map<EventHandler, InternalHandler>): void => {
+      for (const handler of handlers.values()) {
+        if (monitoringEnabled) {
+          performanceMonitor.recordInvocation(eventType);
+        }
         const start = monitoringEnabled ? getCurrentTime() : 0;
         try {
           handler(...payload);
@@ -162,7 +168,7 @@ export class AdvancedEventEmitter {
   }
 
   off(eventType: string, handler: EventHandler): this {
-    if (this.#pathPrefixMatcher!.isPathPrefix(eventType))
+    if (this.#matcher.isPathPrefix(eventType))
       return this.offAll(eventType, handler);
     return this.offKey(eventType, handler);
   }
@@ -170,7 +176,7 @@ export class AdvancedEventEmitter {
   offAll(eventType: string, handler: EventHandler): this {
     this.#validateEventKey(eventType + '*');
     this.#validateHandler(handler, eventType);
-    const eventKeys = this.#pathPrefixMatcher!.getPathsByPrefix(eventType);
+    const eventKeys = this.#matcher.getPathsByPrefix(eventType);
     eventKeys.forEach(v => this.#removeListener(v, handler));
     return this;
   }
@@ -179,8 +185,15 @@ export class AdvancedEventEmitter {
   #removeListener(eventType: string, handler: EventHandler): void {
     const listenerGroup = this.#listeners.get(eventType);
     if (!listenerGroup) return;
-    dellistenerHandler(listenerGroup as Set<WrappedHandler>, handler);
-    // 非严格模式下 自动资源回收（无监听器时删除）
+    const wrapper = listenerGroup.get(handler);
+    if (wrapper) {
+      const state = (wrapper as WrappedHandler).controlState;
+      if (state?.scheduledTask) {
+        clearTimeout(state.scheduledTask);
+        state.isPending = false;
+      }
+      listenerGroup.delete(handler);
+    }
     if (!this.#config.strictMode && listenerGroup.size !== 0) return;
     this.#listeners.delete(eventType);
   }
@@ -214,7 +227,7 @@ export class AdvancedEventEmitter {
   // 销毁实例，清理所有监听器、定时器和状态
   destroy(): void {
     for (const handlers of this.#listeners.values()) {
-      for (const handler of handlers) {
+      for (const handler of handlers.values()) {
         const state = (handler as WrappedHandler).controlState;
         if (state?.scheduledTask) {
           clearTimeout(state.scheduledTask);
@@ -252,13 +265,13 @@ export class AdvancedEventEmitter {
     if (isEvent) return;
     const isStrictMode = this.#config.strictMode;
     if (isStrictMode) return this.#deBug(`未注册的事件: ${eventType}`);
-    this.#listeners.set(eventType, new Set());
+    this.#listeners.set(eventType, new Map());
     this.#pathPrefixMatcher?.addPath(eventType);
   }
 
   #validateNamespace(eventType: string): void {
     if (!this.#config.strictMode) return;
-    if (!this.#pathPrefixMatcher!.isPathPrefix(eventType.replace('*', '')))
+    if (!this.#matcher.isPathPrefix(eventType.replace('*', '')))
       return this.#deBug(`未注册的命名空间事件: ${eventType}`);
   }
 

@@ -33,10 +33,9 @@ export function createFlowController(
   const executeTask = (params: unknown[]): void => {
     controlState.lastExecuted = getCurrentTime();
     controlState.isPending = false;
-    if (controlState.scheduledTask) {
-      clearTimeout(controlState.scheduledTask);
-      controlState.scheduledTask = null;
-    }
+    const task = controlState.scheduledTask;
+    controlState.scheduledTask = null;
+    if (task) clearTimeout(task);
     handler(...params);
   };
 

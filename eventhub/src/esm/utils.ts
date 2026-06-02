@@ -14,27 +14,3 @@ export const getCurrentTime = (): number => {
     : Date.now();
 };
 
-export function isDuplicateHandler(
-  listenerGroup: Set<WrappedHandler>,
-  handler: (...args: unknown[]) => unknown
-): boolean {
-  for (const wrapper of listenerGroup) {
-    if (wrapper.originalRef === handler) return true;
-  }
-  return false;
-}
-
-export function dellistenerHandler(
-  listenerGroup: Set<WrappedHandler>,
-  handler: (...args: unknown[]) => unknown
-): void {
-  for (const wrapper of listenerGroup) {
-    if (wrapper.originalRef !== handler) continue;
-    // 清理定时任务和状态
-    if (wrapper.controlState?.scheduledTask) {
-      clearTimeout(wrapper.controlState.scheduledTask);
-      wrapper.controlState.isPending = false;
-    }
-    listenerGroup.delete(wrapper);
-  }
-}

@@ -250,7 +250,7 @@ export class BaseApi {
         }
 
         const [rej, res] = response;
-        const result = this.handleResponse(apiKey, rej, res as Record<string, unknown> | null);
+        const result = this.handleResponse(config, rej, res as Record<string, unknown> | null);
 
         if (config.cacheTTL && !rej && (res as Record<string, unknown>)?.code === 200) {
           this.setCache(cacheKey, result, config.cacheTTL);
@@ -301,8 +301,7 @@ export class BaseApi {
   /**
    * 处理响应并触发事件
    */
-  handleResponse(apiKey: string, rej: Error | null, res: Record<string, unknown> | null): unknown {
-    const config = this.apiConfig[apiKey];
+  handleResponse(config: ApiConfigItem, rej: Error | null, res: Record<string, unknown> | null): unknown {
     const result = rej || res;
     const isSuccess = !rej && (res as Record<string, unknown>)?.code === 200;
 

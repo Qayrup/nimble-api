@@ -43,22 +43,14 @@ export class ApiService extends BaseApi {
     const configObj = this.apiConfig[apiKey];
     this._validateConfiguration(configObj, apiKey);
 
-    // 匹配花括号内的内容（如{userId}）
-    const regex = /{([^}]+)}/g;
-    const matches = Array.from(configObj.url.matchAll(regex));
-    const paramKeys = matches.map(match => match[1]);
-
-    // 创建URL构建器函数
-    const urlBuilder = (params: Record<string, string | number>): string => {
-      let builtUrl: string = configObj.url;
-      for (const key of paramKeys) {
-        const currentParams = params[key];
-        if (currentParams === void 0)
-          throw new Error(`${builtUrl}缺少必要参数: ${key}`);
-        builtUrl = builtUrl.replace(`{${key}}`, encodeURIComponent(String(currentParams)));
-      }
-      return builtUrl;
-    };
+    // 创建URL构建器函数（单次 replace 避免多次循环产生中间字符串）
+    const urlBuilder = (params: Record<string, string | number>): string =>
+      configObj.url.replace(/{([^}]+)}/g, (_match, key) => {
+        const value = params[key];
+        if (value === void 0)
+          throw new Error(`${configObj.url}缺少必要参数: ${key}`);
+        return encodeURIComponent(String(value));
+      });
 
     // 创建API方法（使用通用签名匹配 MethodWithMethodId）
     const method: ApiMethodObj<T> = (...args: unknown[]) =>
