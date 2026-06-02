@@ -1,6 +1,6 @@
 import { AdvancedEventEmitter } from './esm/index';
-import type { EventHubSettings } from './esm/index';
-export type { FlowMode } from './esm/index';
+import type { EventHubSettings, FlowMode } from './esm/index';
+export type { FlowMode };
 
 let singletonInstance: AdvancedEventEmitter | undefined;
 

@@ -1,11 +1,11 @@
-# qayrup-eventhub
+# @nimble-api/eventhub
 
 一个轻量级、功能丰富的事件管理器，支持流量控制（防抖/节流）、命名空间批量订阅、性能监控等高级特性。
 
 ## 安装
 
 ```bash
-npm install qayrup-eventhub
+npm install @nimble-api/eventhub
 ```
 
 ## 快速开始
@@ -13,7 +13,7 @@ npm install qayrup-eventhub
 ### 基础用法
 
 ```ts
-import { createAdvancedEvent } from 'qayrup-eventhub';
+import { createAdvancedEvent } from '@nimble-api/eventhub';
 
 // 创建实例，第一个参数定义事件键结构，第二个参数为配置项
 const bus = createAdvancedEvent(
@@ -33,7 +33,7 @@ bus.emit('user:login', 'Alice');
 ### 单例模式
 
 ```ts
-import { initAdvancedEvent } from 'qayrup-eventhub';
+import { initAdvancedEvent } from '@nimble-api/eventhub';
 
 // 首次调用创建实例，后续调用返回同一实例
 const bus = initAdvancedEvent(
@@ -45,7 +45,7 @@ const bus = initAdvancedEvent(
 ### 默认导出（代理模式）
 
 ```ts
-import eventHub from 'qayrup-eventhub';
+import eventHub from '@nimble-api/eventhub';
 
 // 使用前需先调用 initAdvancedEvent() 初始化单例
 eventHub.on('app:ready', () => {});

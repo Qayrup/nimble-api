@@ -1,21 +1,21 @@
 {
-  "name": "qayrup-npm",
+  "name": "nimble-api",
   "private": true,
   "license": "ISC",
-  "homepage": "https://github.com/qayrup/qayrup-npm",
+  "homepage": "https://github.com/qayrup/nimble-api",
   "repository": {
     "type": "git",
-    "url": "https://github.com/qayrup/qayrup-npm.git"
+    "url": "https://github.com/qayrup/nimble-api.git"
   },
   "engines": {
-    "node": ">=14"
+    "node": ">=18"
   },
   "workspaces": [
     "api-service",
     "eventhub"
   ],
   "scripts": {
-    "build": "npm run build -w qayrup-eventhub && npm run build -w qayrup-api",
+    "build": "npm run build -w @nimble-api/eventhub && npm run build -w @nimble-api/api-service",
     "typecheck": "npm run typecheck --workspaces",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"**/*.ts\"",
@@ -30,7 +30,10 @@
     "eslint": "^8.57.0",
     "prettier": "^3.2.0",
     "rimraf": "^5.0.0",
-    "typescript": "^5.6.0",
-    "vitest": "^4.1.6"
-  }
-}
+    "typescript": "5.9",
+    "vitest": "^4.1.8"
+  },
+  "volta": {
+    "node": "24.16.0",
+    "npm": "10.2.3"
+  }}

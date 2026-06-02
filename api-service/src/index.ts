@@ -1,7 +1,7 @@
 import { ApiService, apiProxyHandler } from './esm/apiService/apiService';
 import { setEventBus } from './esm/apiService/baseApi';
 import type { ApiConfig, ApiSettings } from './esm/apiService/baseApi';
-import { initAdvancedEvent } from 'qayrup-eventhub';
+import { initAdvancedEvent } from '@nimble-api/eventhub';
 
 export { OPTIMIZE_TYPES } from './esm/optimizers/constants';
 export type { OptimizeType } from './esm/optimizers/constants';
@@ -31,8 +31,8 @@ export function initApiService(
   try {
     const eventHub = initAdvancedEvent();
     setEventBus(eventHub as unknown as { emit: (key: string, payload: unknown) => unknown });
-  } catch {
-    // 事件总线初始化失败时不阻塞API服务
+  } catch (e) {
+    console.warn('[@nimble-api/api-service] 事件总线初始化失败，事件派发功能不可用:', e);
   }
 
   return singletonInstance;
@@ -44,6 +44,15 @@ export function getApiService(): ApiService {
     throw new Error('请先调用 initApiService 初始化API服务');
   }
   return singletonInstance;
+}
+
+// 销毁单例
+export function destroyApiService(): void {
+  if (singletonInstance) {
+    singletonInstance.destroy();
+    singletonInstance = null;
+  }
+  setEventBus(null);
 }
 
 const proxyHandler: ProxyHandler<object> = {

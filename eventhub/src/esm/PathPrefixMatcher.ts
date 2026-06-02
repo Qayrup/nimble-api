@@ -39,7 +39,7 @@ export class EnhancedPathPrefixMatcher {
    * 检查给定前缀是否存在且是路径（非最终值）
    */
   isPathPrefix(prefix: string): boolean {
-    return this.prefixMap.has(prefix) && this.prefixMap.get(prefix)!.length > 0;
+    return this.prefixMap.has(prefix);
   }
 
   /**

@@ -188,17 +188,18 @@ export function linkLockOptimizer<T = unknown>(
 
 /**
  * 返回值控制优化器
+ * 当 shouldReturn 为 false 时返回 undefined，因此返回类型为 T | undefined
  */
 export function returnControlOptimizer<T = unknown>(
   method: MethodWithMethodId<T>,
   shouldReturn: boolean = true
-): MethodWithMethodId<T> {
-  const wrapped = async function (this: unknown, ...args: unknown[]): Promise<T> {
+): MethodWithMethodId<T | undefined> {
+  const wrapped = async function (this: unknown, ...args: unknown[]): Promise<T | undefined> {
     const result = await method.apply(this, args);
-    return (shouldReturn ? result : undefined) as T;
+    return shouldReturn ? result : undefined;
   };
 
-  (wrapped as MethodWithMethodId).methodId = method.methodId;
+  (wrapped as MethodWithMethodId<T | undefined>).methodId = method.methodId;
   return wrapped;
 }
 

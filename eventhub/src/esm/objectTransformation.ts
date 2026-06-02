@@ -31,7 +31,9 @@ function processObject(
   // 处理对象的所有属性，但忽略$前缀属性
   for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
     if (key.startsWith('$')) continue;
-    processObject(value, [...currentPath, key], resultSet);
+    currentPath.push(key);
+    processObject(value, currentPath, resultSet);
+    currentPath.pop();
   }
 }
 
@@ -72,7 +74,9 @@ function checkObjectStructure(
   if (!isLeaf) {
     for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
       if (key.startsWith('$')) continue;
-      checkObjectStructure(value, [...currentPath, key], pathMap);
+      currentPath.push(key);
+      checkObjectStructure(value, currentPath, pathMap);
+      currentPath.pop();
     }
   }
 }

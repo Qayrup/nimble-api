@@ -1,21 +1,21 @@
-# qayrup-api
+# @nimble-api/api-service
 
 轻量级 API 服务框架，支持声明式 API 定义、动态方法生成、请求缓存、去重、以及可组合的优化策略（防抖/节流/锁）。
 
 ## 安装
 
 ```bash
-npm install qayrup-api
+npm install @nimble-api/api-service
 ```
 
-依赖 `qayrup-eventhub`，事件总线需通过 `initApiService` 自动连接或手动调用 `setEventBus`。
+依赖 `@nimble-api/eventhub`，事件总线需通过 `initApiService` 自动连接或手动调用 `setEventBus`。
 
 ## 快速开始
 
 ### 基础用法
 
 ```ts
-import { createApiService } from 'qayrup-api';
+import { createApiService } from '@nimble-api/api-service';
 
 const api = createApiService({
   getUser: {
@@ -45,7 +45,7 @@ const cached = await api.getUserAPI({ userId: '123' }, {});
 ### 单例模式（自动连接事件总线）
 
 ```ts
-import { initApiService } from 'qayrup-api';
+import { initApiService } from '@nimble-api/api-service';
 
 const api = initApiService({
   getList: {
@@ -56,14 +56,14 @@ const api = initApiService({
 });
 
 // 后续获取
-import { getApiService } from 'qayrup-api';
+import { getApiService } from '@nimble-api/api-service';
 const sameInstance = getApiService();
 ```
 
 ### 链式优化器
 
 ```ts
-import { OPTIMIZE_TYPES } from 'qayrup-api';
+import { OPTIMIZE_TYPES } from '@nimble-api/api-service';
 
 const api = createApiService({
   search: {
@@ -184,7 +184,7 @@ api
 2. **缓存检查**：若配置了 `cacheTTL`，先查缓存 → 再查 in-flight 去重
 3. **请求去重**：同 cacheKey 的并发请求共享同一个 Promise
 4. **发送请求**：UniApp 环境使用 `uni.request`/`uni.uploadFile`；非 UniApp 环境回退到 `fetch`
-5. **事件派发**：成功/失败事件通过微任务批量合并后发送到 `qayrup-eventhub`
+5. **事件派发**：成功/失败事件通过微任务批量合并后发送到 `@nimble-api/eventhub`
 6. **缓存写入**：成功响应（code=200）且配置了 `cacheTTL` 时自动缓存
 
 ## 缓存系统
@@ -231,7 +231,7 @@ const api = createApiService({ ...config }, { fetchTimeout: 10000 });
 
 #### initApiService(apiConfig?, settings?)
 
-初始化单例，自动连接 `qayrup-eventhub`。
+初始化单例，自动连接 `@nimble-api/eventhub`。
 
 #### getApiService()
 
@@ -250,8 +250,8 @@ const api = createApiService({ ...config }, { fetchTimeout: 10000 });
 ### 事件总线集成
 
 ```ts
-import { setEventBus } from 'qayrup-api';
-import { createAdvancedEvent } from 'qayrup-eventhub';
+import { setEventBus } from '@nimble-api/api-service';
+import { createAdvancedEvent } from '@nimble-api/eventhub';
 
 const bus = createAdvancedEvent({ USER: { FETCHED: '' } });
 setEventBus(bus);

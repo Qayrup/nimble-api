@@ -59,6 +59,7 @@ export function createFlowController(
 
     // 条件1：当前无等待任务且超过延迟时间 → 立即执行
     if (!controlState.isPending && currentTime - controlState.lastExecuted >= delay) {
+      controlState.isPending = true;
       executeTask(params);
     }
     // 条件2：若无活跃定时器 → 设置延迟任务补最后一次触发

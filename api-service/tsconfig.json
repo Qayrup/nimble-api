@@ -4,7 +4,7 @@
     "outDir": "dist",
     "rootDir": "..",
     "paths": {
-      "qayrup-eventhub": ["../eventhub/src/index.ts"]
+      "@nimble-api/eventhub": ["../eventhub/src/index.ts"]
     }
   },
   "include": ["src"],

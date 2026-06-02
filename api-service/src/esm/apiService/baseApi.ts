@@ -5,7 +5,7 @@ import type { MethodWithMethodId } from './optimizers';
 // 事件总线（由 initAdvancedEvent 初始化后可用）
 let eventBus: { emit: (key: string, payload: unknown) => unknown } | null = null;
 
-export function setEventBus(bus: { emit: (key: string, payload: unknown) => unknown }): void {
+export function setEventBus(bus: { emit: (key: string, payload: unknown) => unknown } | null): void {
   eventBus = bus;
 }
 
@@ -56,7 +56,11 @@ type UniTaskResult = RequestTask & { then?: (...args: unknown[]) => unknown };
 type UniRequestFn = (config: Record<string, unknown>) => UniTaskResult;
 
 function getUni(): { request: UniRequestFn; uploadFile: UniRequestFn } | undefined {
-  return (globalThis as Record<string, unknown>).uni as { request: UniRequestFn; uploadFile: UniRequestFn } | undefined;
+  const cache = (getUni as { _cache?: ReturnType<typeof getUni> })._cache;
+  if (cache !== undefined) return cache;
+  const uni = (globalThis as Record<string, unknown>).uni as { request: UniRequestFn; uploadFile: UniRequestFn } | undefined;
+  (getUni as { _cache?: ReturnType<typeof getUni> })._cache = uni;
+  return uni;
 }
 
 function easyTry<T>(p: Promise<T>): Promise<[null, T] | [Error, null]> {
@@ -107,6 +111,13 @@ export class BaseApi {
   }
 
   private static MAX_OPTIMIZE_PROXY_CACHE = 50;
+  private static MAX_METHOD_CACHE = 200;
+  private static MAX_FLOW_CACHE = 200;
+
+  private static evictOldest<K, V>(map: Map<K, V>): void {
+    const firstKey = map.keys().next().value as K;
+    map.delete(firstKey);
+  }
 
   /**
    * 设置优化配置，返回代理对象支持链式调用
@@ -126,11 +137,11 @@ export class BaseApi {
     const optimization: OptimizationConfig = { type, args };
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
-    const proxy: Record<string | symbol, unknown> = new Proxy(this as unknown as Record<string | symbol, unknown>, {
+    const proxy = new Proxy(this as Record<string | symbol, unknown>, {
       get(_target, prop) {
         if (prop === 'optimize') {
           return (newType: string, ...newArgs: unknown[]) =>
-            (proxy as unknown as BaseApi).optimize(newType, ...newArgs);
+            self.optimize(newType, ...newArgs);
         }
 
         if (typeof prop === 'string' && prop.endsWith('API')) {
@@ -139,6 +150,9 @@ export class BaseApi {
           if (cached !== undefined) return cached;
           const originalMethod = self.getAPIMethod(prop);
           const optimizedMethod = self.applyOptimization(originalMethod, optimization);
+          if (self.optimizedMethodCache.size >= BaseApi.MAX_METHOD_CACHE) {
+            BaseApi.evictOldest(self.optimizedMethodCache);
+          }
           self.optimizedMethodCache.set(optimizedKey, optimizedMethod);
           return optimizedMethod;
         }
@@ -154,19 +168,24 @@ export class BaseApi {
   /**
    * 应用优化到方法
    */
-  applyOptimization<T = unknown>(method: MethodWithMethodId<T>, optimization: OptimizationConfig): MethodWithMethodId<T> | MethodWithMethodId<T | null> {
+  applyOptimization<T = unknown>(method: MethodWithMethodId<T>, optimization: OptimizationConfig): MethodWithMethodId<T | null | undefined> {
     switch (optimization.type) {
       case 'debounce':
+        if (this.debounceCache.size >= BaseApi.MAX_FLOW_CACHE) BaseApi.evictOldest(this.debounceCache);
         return optimizers.debounceOptimizer(method, this.debounceCache, ...optimization.args as [number?]);
       case 'throttle':
+        if (this.throttleCache.size >= BaseApi.MAX_FLOW_CACHE) BaseApi.evictOldest(this.throttleCache);
         return optimizers.throttleOptimizer(method, this.throttleCache, ...optimization.args as [number?]);
       case 'switchLock':
+        if (this.switchLockMap.size >= BaseApi.MAX_FLOW_CACHE) BaseApi.evictOldest(this.switchLockMap);
         return optimizers.switchLockOptimizer(method, this.switchLockMap, ...optimization.args as [{ value: boolean }?]);
       case 'linkLock':
         return optimizers.linkLockOptimizer(method, ...optimization.args as [{ value: boolean }?]);
       case 'return':
         return optimizers.returnControlOptimizer(method, ...optimization.args as [boolean?]);
       case 'debounceThrottle':
+        if (this.debounceCache.size >= BaseApi.MAX_FLOW_CACHE) BaseApi.evictOldest(this.debounceCache);
+        if (this.throttleCache.size >= BaseApi.MAX_FLOW_CACHE) BaseApi.evictOldest(this.throttleCache);
         return optimizers.debounceThrottleOptimizer(method, this.debounceCache, this.throttleCache, ...optimization.args as [number?]);
       default:
         return method;
@@ -223,9 +242,13 @@ export class BaseApi {
         if (config.method === 'UPLOAD') {
           const uni = getUni();
           if (!uni) throw new Error('UniApp环境不可用，无法执行上传');
+          const filePath = data.file;
+          if (typeof filePath !== 'string' || filePath.includes('..')) {
+            throw new Error('文件路径无效');
+          }
           task = wrapUniTask(uni.uploadFile({
             ...baseConfig,
-            filePath: data.file,
+            filePath,
             name: 'file'
           }));
           this.requestTasks.set(apiKey, task);
@@ -306,11 +329,7 @@ export class BaseApi {
     const isSuccess = !rej && (res as Record<string, unknown>)?.code === 200;
 
     if (isSuccess) {
-      const successEvents = Array.isArray(config.eventSuccess)
-        ? config.eventSuccess
-        : [config.eventSuccess];
-
-      successEvents.forEach((sEvent) => {
+      for (const sEvent of config.eventSuccess) {
         if (sEvent) {
           this.queueEvent({
             successEvent: sEvent,
@@ -319,21 +338,17 @@ export class BaseApi {
             isSuccess: true
           });
         }
-      });
+      }
     } else {
       const errorEvent = this.getErrorEvent(config, rej ? (rej as Error & { code?: number })?.code : (res as Record<string, unknown>)?.code as number);
-      const errorEvents = Array.isArray(errorEvent) ? errorEvent : [errorEvent];
-
-      errorEvents.forEach((eEvent) => {
-        if (eEvent) {
-          this.queueEvent({
-            successEvent: null,
-            errorEvent: eEvent,
-            payload: result,
-            isSuccess: false
-          });
-        }
-      });
+      if (errorEvent) {
+        this.queueEvent({
+          successEvent: null,
+          errorEvent: errorEvent,
+          payload: result,
+          isSuccess: false
+        });
+      }
     }
 
     return result;
@@ -343,7 +358,7 @@ export class BaseApi {
    * 获取错误事件类型
    */
   getErrorEvent(config: ApiConfigItem, code?: number): string | undefined {
-    return (code !== undefined ? config.eventErrors?.[code] : undefined) || config.eventErrors?.default;
+    return (code !== undefined ? config.eventErrors[code] : undefined) || config.eventErrors.default;
   }
 
   /**

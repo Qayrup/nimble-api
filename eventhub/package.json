@@ -1,21 +1,20 @@
 {
-  "name": "qayrup-eventhub",
+  "name": "@nimble-api/eventhub",
   "version": "1.1.0",
   "description": "一个轻量级的事件管理器",
   "main": "./dist/index.js",
-  "module": "./dist/index.module.js",
-  "unpkg": "./dist/index.umd.js",
+  "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
-  "homepage": "https://github.com/qayrup/qayrup-npm",
+  "homepage": "https://github.com/qayrup/nimble-api",
   "repository": {
     "type": "git",
-    "url": "https://github.com/qayrup/qayrup-npm.git"
+    "url": "https://github.com/qayrup/nimble-api.git"
   },
   "scripts": {
     "test": "vitest run",
     "clean": "rimraf dist",
-    "build": "npm run clean && microbundle --tsconfig tsconfig.build.json",
-    "dev": "microbundle watch",
+    "build": "tsup",
+    "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },
@@ -26,26 +25,22 @@
   ],
   "author": "qayrup",
   "license": "ISC",
-  "source": "./src/index.ts",
   "files": [
     "dist"
   ],
   "exports": {
     ".": {
-      "import": "./dist/index.module.js",
-      "require": "./dist/index.js",
       "types": "./dist/index.d.ts",
-      "default": "./dist/index.module.js"
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "default": "./dist/index.mjs"
     }
   },
   "sideEffects": false,
   "engines": {
-    "node": ">=14"
+    "node": ">=18"
   },
   "devDependencies": {
-    "@babel/plugin-transform-class-properties": "^7.28.6",
-    "@babel/plugin-transform-private-methods": "^7.28.6",
-    "@babel/preset-typescript": "^7.24.0",
-    "microbundle": "^0.15.1"
+    "tsup": "^8.5.1"
   }
 }

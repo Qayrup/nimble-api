@@ -5,6 +5,8 @@ import type { ApiConfig, ApiSettings, ApiMethodObj, ApiMethodWithOptimize } from
  * API服务类，继承基础API实现动态方法生成
  */
 export class ApiService extends BaseApi {
+  private static MAX_API_CACHE = 200;
+
   /** URL构建器缓存 */
   urlBuilderCache = new Map<string, ApiMethodObj>();
   /** LINKAPI Proxy 缓存，避免每次属性访问重复创建 */
@@ -60,6 +62,10 @@ export class ApiService extends BaseApi {
     method.methodId = Symbol(`API_METHOD_${apiKey}`);
 
     // 缓存方法
+    if (this.urlBuilderCache.size >= ApiService.MAX_API_CACHE) {
+      const firstKey = this.urlBuilderCache.keys().next().value as string;
+      this.urlBuilderCache.delete(firstKey);
+    }
     this.urlBuilderCache.set(apiKey, method as ApiMethodObj);
     return method;
   }
@@ -93,6 +99,10 @@ export class ApiService extends BaseApi {
       }
     }) as unknown as ApiMethodWithOptimize<T>;
 
+    if (this.linkProxyCache.size >= ApiService.MAX_API_CACHE) {
+      const firstKey = this.linkProxyCache.keys().next().value as string;
+      this.linkProxyCache.delete(firstKey);
+    }
     this.linkProxyCache.set(apiKey, linkProxy as ApiMethodWithOptimize);
     return linkProxy;
   }
@@ -109,16 +119,26 @@ export class ApiService extends BaseApi {
 // 后续访问直接读取实例自身属性，避免每次经过 getAPIMethod
 export const apiProxyHandler: ProxyHandler<ApiService> = {
   get(target, prop, _receiver) {
-    if (typeof prop === 'string' && prop.endsWith('API')) {
-      const apiKey = prop.slice(0, -3);
-      if (apiKey in target) {
-        return (target as unknown as Record<string, unknown>)[apiKey];
+    if (typeof prop === 'string') {
+      // 快速路径：已自缓存的属性直接返回，跳过字符串匹配
+      if (prop in target) {
+        return (target as unknown as Record<string, unknown>)[prop];
       }
-      return target.getAPIMethod(apiKey);
-    }
-    if (typeof prop === 'string' && prop.endsWith('LINKAPI')) {
-      const apiKey = prop.slice(0, -7);
-      return target.getAPIMethodLink(apiKey);
+      if (prop.endsWith('API')) {
+        const apiKey = prop.slice(0, -3);
+        if (apiKey in target) {
+          const method = (target as unknown as Record<string, unknown>)[apiKey];
+          (target as unknown as Record<string, unknown>)[prop] = method;
+          return method;
+        }
+        return target.getAPIMethod(apiKey);
+      }
+      if (prop.endsWith('LINKAPI')) {
+        const apiKey = prop.slice(0, -7);
+        const linkMethod = target.getAPIMethodLink(apiKey);
+        (target as unknown as Record<string, unknown>)[prop] = linkMethod;
+        return linkMethod;
+      }
     }
     return Reflect.get(target, prop, _receiver);
   }

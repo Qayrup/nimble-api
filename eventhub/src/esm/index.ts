@@ -148,7 +148,7 @@ export class AdvancedEventEmitter {
           try {
             this.#deBug(String(error), eventType, (handler as WrappedHandler).originalRef || handler);
           } catch {
-            console.error(`[qayrup-eventhub] Unhandled error for event "${eventType}":`, error);
+            console.error(`[@nimble-api/eventhub] Unhandled error for event "${eventType}":`, error);
           }
         } finally {
           if (monitoringEnabled) {
@@ -297,12 +297,12 @@ export class AdvancedEventEmitter {
 
     // 单次执行包装
     if (config.once) {
-      const tempWrapper = (...params: unknown[]) => {
+      const tempWrapper: WrappedHandler = (...params: unknown[]) => {
         wrappedHandler(...params);
         this.off(eventType, originalHandler);
       };
-      (tempWrapper as WrappedHandler).originalRef = originalHandler;
-      return tempWrapper as unknown as InternalHandler;
+      tempWrapper.originalRef = originalHandler;
+      return tempWrapper;
     }
 
     // 挂载原始处理器引用
@@ -324,7 +324,7 @@ export class AdvancedEventEmitter {
         try {
           this.#deBug(String(error), eventType, handler);
         } catch {
-          console.error(`[qayrup-eventhub] Unhandled async error for event "${eventType}":`, error);
+          console.error(`[@nimble-api/eventhub] Unhandled async error for event "${eventType}":`, error);
         }
       }
     };
