@@ -244,10 +244,9 @@ export class EventHub<T extends EventMap = Record<string, unknown>> {
     event: K,
     opts?: { signal?: AbortSignal; bufferMax?: number },
   ): AsyncIterable<T[K]> {
-    const self = this;
     const maxBuffer = opts?.bufferMax ?? 1000;
     return {
-      [Symbol.asyncIterator](): AsyncIterator<T[K]> {
+      [Symbol.asyncIterator]: (): AsyncIterator<T[K]> => {
         const queue: T[K][] = [];
         let resolveNext: ((v: IteratorResult<T[K]>) => void) | null = null;
         let done = false;
@@ -261,7 +260,7 @@ export class EventHub<T extends EventMap = Record<string, unknown>> {
           }
         };
 
-        const unsub = self.on(
+        const unsub = this.on(
           event,
           (payload: T[K]) => {
             if (resolveNext) {

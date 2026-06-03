@@ -158,12 +158,10 @@ export class ApiClient {
 
   async #executeWithRetry<T>(state: RequestState, cacheKey: string): Promise<T> {
     const retry = state.options.retry;
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const self = this;
 
-    async function attempt(): Promise<T> {
+    const attempt = async (): Promise<T> => {
       try {
-        return await self.#executeOnce<T>(state, cacheKey);
+        return await this.#executeOnce<T>(state, cacheKey);
       } catch (err) {
         const error = err instanceof ApiError ? err : new ApiError(
           err instanceof Error ? err.message : String(err),
@@ -178,7 +176,7 @@ export class ApiClient {
         state.retryCount++;
 
         // Run beforeError hooks
-        const errorState = await runBeforeError(self.#hooks, state);
+        const errorState = await runBeforeError(this.#hooks, state);
 
         // Check retry
         if (
@@ -187,7 +185,7 @@ export class ApiClient {
           shouldRetry(retry, error.status ?? error.response?.status, state.request.method)
         ) {
           // Run beforeRetry hooks
-          const retryResult = await runBeforeRetry(self.#hooks, errorState);
+          const retryResult = await runBeforeRetry(this.#hooks, errorState);
           if (retryResult === stop) throw errorState.error;
 
           const delay = calcBackoff(retry, state.retryCount);
@@ -195,10 +193,10 @@ export class ApiClient {
           return attempt();
         }
 
-        self.#dispatchEvents(errorState);
+        this.#dispatchEvents(errorState);
         throw errorState.error;
       }
-    }
+    };
 
     return attempt();
   }
