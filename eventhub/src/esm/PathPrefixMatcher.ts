@@ -22,15 +22,14 @@ export class EnhancedPathPrefixMatcher {
 
     for (const path of this.pathSet) {
       const parts = path.split(':');
+      let prefix = parts[0];
 
       for (let i = 1; i < parts.length; i++) {
-        const prefix = parts.slice(0, i).join(':');
-
         if (!this.prefixMap.has(prefix)) {
           this.prefixMap.set(prefix, []);
         }
-
         this.prefixMap.get(prefix)!.push(path);
+        prefix = prefix + ':' + parts[i];
       }
     }
   }
@@ -64,15 +63,14 @@ export class EnhancedPathPrefixMatcher {
 
     this.pathSet.add(path);
     const parts = path.split(':');
+    let prefix = parts[0];
 
     for (let i = 1; i < parts.length; i++) {
-      const prefix = parts.slice(0, i).join(':');
-
       if (!this.prefixMap.has(prefix)) {
         this.prefixMap.set(prefix, []);
       }
-
       this.prefixMap.get(prefix)!.push(path);
+      prefix = prefix + ':' + parts[i];
     }
   }
 
@@ -93,10 +91,9 @@ export class EnhancedPathPrefixMatcher {
 
     this.pathSet.delete(path);
     const parts = path.split(':');
+    let prefix = parts[0];
 
     for (let i = 1; i < parts.length; i++) {
-      const prefix = parts.slice(0, i).join(':');
-
       if (this.prefixMap.has(prefix)) {
         const pathArray = this.prefixMap.get(prefix)!;
         const index = pathArray.indexOf(path);
@@ -109,6 +106,7 @@ export class EnhancedPathPrefixMatcher {
           }
         }
       }
+      prefix = prefix + ':' + parts[i];
     }
   }
 

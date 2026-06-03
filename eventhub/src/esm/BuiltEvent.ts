@@ -7,5 +7,3 @@ export const BUILT = {
     TEST: '测试'
   }
 } as const;
-
-Object.freeze(BUILT);

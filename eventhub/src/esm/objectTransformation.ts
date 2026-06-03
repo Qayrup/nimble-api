@@ -40,13 +40,13 @@ function processObject(
 /**
  * 检查对象结构是否有效（确保没有混合结构，忽略$前缀属性）
  */
-function validateObjectStructure(...objects: NestedObject[]): boolean {
+function validateObjectStructure(...objects: NestedObject[]): void {
   const pathMap = new Map<string, 'leaf' | 'node'>();
 
   for (const obj of objects) {
     checkObjectStructure(obj, [], pathMap);
   }
-  return true;
+  return;
 }
 
 /**

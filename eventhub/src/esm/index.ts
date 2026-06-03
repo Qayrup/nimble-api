@@ -2,7 +2,7 @@ import { isValidObj } from './validate';
 import { safeObjectsToStrings, stringsToObject } from './objectTransformation';
 import { EnhancedPathPrefixMatcher } from './PathPrefixMatcher';
 import { BUILT } from './BuiltEvent';
-import { performanceMonitor } from './performanceMonitor';
+import { PerformanceMonitor } from './performanceMonitor';
 import { createFlowController } from './flowController';
 import type { FlowControlledHandler } from './flowController';
 import { getCurrentTime } from './utils';
@@ -59,6 +59,7 @@ export class AdvancedEventEmitter {
     enabled: false
   };
   #deBug: (msg: string, eventType?: string, handler?: unknown) => never = deBug;
+  #monitor = new PerformanceMonitor();
 
   // 实例化
   constructor(eventConfig: Record<string, unknown> = {}, settingConfig: EventHubSettings = {}) {
@@ -78,7 +79,7 @@ export class AdvancedEventEmitter {
       }
     }
     Object.assign(this.#config, settingConfig);
-    performanceMonitor.toggle(settingConfig.enabled ?? false);
+    this.#monitor.toggle(settingConfig.enabled ?? false);
   }
 
   // 初始化事件注册表（从配置中提取所有事件类型）
@@ -108,7 +109,7 @@ export class AdvancedEventEmitter {
   // 名称空间添加监听
   onAll(eventType: string, handler: EventHandler, config: ListenerOptions = {}): this {
     this.#validateHandler(handler, eventType);
-    this.#validateEventKey(eventType + '*');
+    this.#validateEventKey(eventType, true);
     // 获取该名称空间下,所有的注册事件key
     const eventKeys = this.#matcher.getPathsByPrefix(eventType);
     // 批量注册上限保护
@@ -131,17 +132,14 @@ export class AdvancedEventEmitter {
 
   emit(eventType: string, ...payload: unknown[]): this {
     this.#validateEventKey(eventType);
-    const monitoringEnabled = this.#config.enabled;
-    if (monitoringEnabled) {
-      performanceMonitor.startTrace(eventType);
-    }
+    const handlers = this.#listeners.get(eventType);
+    if (!handlers || handlers.size === 0) return this;
 
-    const executeHandlers = (handlers: Map<EventHandler, InternalHandler>): void => {
+    if (this.#config.enabled) {
+      this.#monitor.startTrace(eventType);
       for (const handler of handlers.values()) {
-        if (monitoringEnabled) {
-          performanceMonitor.recordInvocation(eventType);
-        }
-        const start = monitoringEnabled ? getCurrentTime() : 0;
+        this.#monitor.recordInvocation(eventType);
+        const start = getCurrentTime();
         try {
           handler(...payload);
         } catch (error) {
@@ -151,19 +149,23 @@ export class AdvancedEventEmitter {
             console.error(`[@nimble-api/eventhub] Unhandled error for event "${eventType}":`, error);
           }
         } finally {
-          if (monitoringEnabled) {
-            const duration = getCurrentTime() - start;
-            performanceMonitor.updateDuration(eventType, duration);
+          this.#monitor.updateDuration(eventType, getCurrentTime() - start);
+        }
+      }
+    } else {
+      for (const handler of handlers.values()) {
+        try {
+          handler(...payload);
+        } catch (error) {
+          try {
+            this.#deBug(String(error), eventType, (handler as WrappedHandler).originalRef || handler);
+          } catch {
+            console.error(`[@nimble-api/eventhub] Unhandled error for event "${eventType}":`, error);
           }
         }
       }
-    };
-
-    // 精准匹配事件（避免无监听器时创建临时 Set）
-    const handlers = this.#listeners.get(eventType);
-    if (handlers && handlers.size > 0) {
-      executeHandlers(handlers);
     }
+
     return this;
   }
 
@@ -174,7 +176,7 @@ export class AdvancedEventEmitter {
   }
 
   offAll(eventType: string, handler: EventHandler): this {
-    this.#validateEventKey(eventType + '*');
+    this.#validateEventKey(eventType, true);
     this.#validateHandler(handler, eventType);
     const eventKeys = this.#matcher.getPathsByPrefix(eventType);
     eventKeys.forEach(v => this.#removeListener(v, handler));
@@ -238,12 +240,12 @@ export class AdvancedEventEmitter {
     this.#listeners.clear();
     this.#pathPrefixMatcher?.clear();
     this.EVENTKEY = {};
-    performanceMonitor.resetAll();
+    this.#monitor.resetAll();
   }
 
   // 获取性能指标
   getMetrics(eventType: string) {
-    return performanceMonitor.getMetrics(eventType);
+    return this.#monitor.getMetrics(eventType);
   }
 
   // === 验证以及处理工厂 ===
@@ -255,8 +257,8 @@ export class AdvancedEventEmitter {
   }
 
   // 安全验证方法
-  #validateEventKey(eventType: string): void {
-    if (eventType.endsWith('*')) return this.#validateNamespace(eventType);
+  #validateEventKey(eventType: string, isNamespace = false): void {
+    if (isNamespace) return this.#validateNamespace(eventType);
     return this.#validateEventType(eventType);
   }
 
@@ -271,7 +273,7 @@ export class AdvancedEventEmitter {
 
   #validateNamespace(eventType: string): void {
     if (!this.#config.strictMode) return;
-    if (!this.#matcher.isPathPrefix(eventType.replace('*', '')))
+    if (!this.#matcher.isPathPrefix(eventType))
       return this.#deBug(`未注册的命名空间事件: ${eventType}`);
   }
 

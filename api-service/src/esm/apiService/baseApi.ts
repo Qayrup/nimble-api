@@ -99,6 +99,8 @@ export class BaseApi {
   debounceCache = new Map<symbol, { timer: ReturnType<typeof setTimeout> | null; lastResolve: ((v: unknown) => void) | null; lastReject: ((e: unknown) => void) | null }>();
   throttleCache = new Map<symbol, { lastCall: number; lastPromise: Promise<unknown> | null }>();
 
+  #destroyed = false;
+
   constructor(apiConfig: ApiConfig, settings: ApiSettings = {}) {
     this.apiConfig = apiConfig;
     this.enableLogging = settings.enableLogging ?? false;
@@ -379,6 +381,7 @@ export class BaseApi {
    * 批量派发队列中的事件
    */
   flushEvents(): void {
+    if (this.#destroyed) return;
     const events = this.EVENT_QUEUE.splice(0);
     const eventMap = new Map<string, unknown[]>();
 
@@ -405,6 +408,7 @@ export class BaseApi {
    * 销毁实例，清理所有定时器、缓存和状态，防止内存泄漏
    */
   destroy(): void {
+    this.#destroyed = true;
     // 取消待处理的批量派发定时器
     if (this.BATCH_TIMER) {
       this.BATCH_TIMER = null;
