@@ -322,7 +322,7 @@ export class ApiClient {
 
     // 9. Entity cache tags from response
     if (state.options.entities.length > 0 && state.response?.data) {
-      this.#extractEntities(state.options.entities, state.response.data, cacheKey);
+      this.#extractEntities(state.options.entities, state.response.data);
     }
 
     // 10. Invalidate tags
@@ -387,7 +387,7 @@ export class ApiClient {
     return undefined;
   }
 
-  #extractEntities(entities: Array<{ name: string; idKey?: string }>, data: unknown, _cacheKey: string): void {
+  #extractEntities(entities: Array<{ name: string; idKey?: string }>, data: unknown): void {
     const payload =
       (data as Record<string, unknown>)?.data && typeof (data as Record<string, unknown>).data === 'object'
         ? (data as Record<string, unknown>).data
