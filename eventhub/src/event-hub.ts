@@ -1,5 +1,5 @@
 import { snapshotSet } from './features/snapshot';
-import type { EventMap, SubscribeOptions, Unsubscribe, MetaEventPayloads } from './core/types';
+import type { SubscribeOptions, Unsubscribe, MetaEventPayloads } from './core/types';
 
 type AnyHandler = (...args: unknown[]) => void;
 
@@ -7,7 +7,7 @@ interface HandlerRecord {
   raw: AnyHandler;
 }
 
-export class EventHub<T extends EventMap = Record<string, unknown>> {
+export class EventHub<T = Record<string, unknown>> {
   #handlers = new Map<string, Set<HandlerRecord>>();
   #anyHandlers = new Set<HandlerRecord>();
   #destroyed = false;

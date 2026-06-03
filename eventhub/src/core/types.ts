@@ -5,8 +5,6 @@ declare global {
   }
 }
 
-export type EventMap = Record<string, unknown>;
-
 export interface SubscribeOptions {
   signal?: AbortSignal;
 }

@@ -1,8 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createEventHub } from '../index';
-import type { EventMap } from '../core/types';
 
-interface TestEvents extends EventMap {
+interface TestEvents {
   'user:login': { userId: string; timestamp: number };
   'user:logout': { userId: string };
   'order:created': { orderId: string; amount: number };
