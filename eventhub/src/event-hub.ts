@@ -92,6 +92,13 @@ export class EventHub<T extends EventMap = Record<string, unknown>> {
   ): Promise<T[K]> {
     this.#checkDestroyed();
 
+    const signal = opts?.signal;
+    if (signal?.aborted) {
+      const err = new Error('[@nimble-api/eventhub] once() aborted');
+      err.name = 'AbortError';
+      return Promise.reject(err);
+    }
+
     return new Promise<T[K]>((resolve, reject) => {
       let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
@@ -102,7 +109,6 @@ export class EventHub<T extends EventMap = Record<string, unknown>> {
           unsub();
           resolve(payload);
         },
-        { signal: opts?.signal },
       );
 
       if (opts?.timeout != null) {
@@ -114,8 +120,8 @@ export class EventHub<T extends EventMap = Record<string, unknown>> {
         }, opts.timeout);
       }
 
-      if (opts?.signal) {
-        opts.signal.addEventListener(
+      if (signal) {
+        signal.addEventListener(
           'abort',
           () => {
             if (timeoutId !== undefined) clearTimeout(timeoutId);
