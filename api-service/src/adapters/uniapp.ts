@@ -32,7 +32,7 @@ export function createUniAppAdapter(): RequestAdapter {
       const requestConfig: Record<string, unknown> = {
         url,
         method: isUpload ? 'POST' : method,
-        header: { 'Content-Type': 'application/json', ...headers },
+        header: headers,
         data: body,
       };
 

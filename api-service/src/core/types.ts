@@ -161,7 +161,7 @@ export interface AdapterResponse {
 // === EventHub (minimal interface, avoids circular dependency) ===
 
 export interface EventHubLike {
-  emit: (event: string, payload: unknown) => Promise<void>;
+  emit: (event: string, payload: unknown) => void;
   on: (event: string, handler: (payload: unknown) => void) => () => void;
 }
 

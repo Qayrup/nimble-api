@@ -38,7 +38,7 @@ export function createFetchAdapter(timeout = 30000): RequestAdapter {
       try {
         const res = await fetch(url, {
           method,
-          headers: hasBody ? { 'Content-Type': 'application/json', ...headers } : headers,
+          headers,
           body: hasBody ? JSON.stringify(body) : undefined,
           signal: controller.signal,
         });

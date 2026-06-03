@@ -415,7 +415,7 @@ export class ApiClient {
     // onSuccess
     if (status != null && status >= 200 && status < 300 && state.options.onSuccess.length > 0) {
       for (const key of state.options.onSuccess) {
-        hub.emit(key, data).catch(() => {});
+        try { hub.emit(key, data); } catch { /* event errors are non-critical */ }
       }
     }
 
@@ -424,7 +424,7 @@ export class ApiClient {
       const code = (state.error.data as { code?: number })?.code;
       const eventKey = (code != null ? state.options.onError[code] : undefined) ?? state.options.onError.default;
       if (eventKey) {
-        hub.emit(eventKey, state.error.data).catch(() => {});
+        try { hub.emit(eventKey, state.error.data); } catch { /* event errors are non-critical */ }
       }
     }
   }

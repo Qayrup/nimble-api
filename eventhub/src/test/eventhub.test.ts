@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createEventHub, EventHub } from '../index';
+import { createEventHub } from '../index';
 import type { EventMap } from '../core/types';
 
 interface TestEvents extends EventMap {
@@ -23,7 +23,7 @@ describe('EventHub core', () => {
       const hub = createTestHub();
       const handler = vi.fn();
       hub.on('user:login', handler);
-      await hub.emit('user:login', { userId: '123', timestamp: 1000 });
+      hub.emit('user:login', { userId: '123', timestamp: 1000 });
       expect(handler).toHaveBeenCalledTimes(1);
       expect(handler).toHaveBeenCalledWith({ userId: '123', timestamp: 1000 });
     });
@@ -33,7 +33,7 @@ describe('EventHub core', () => {
       const handler = vi.fn();
       const unsub = hub.on('user:login', handler);
       unsub();
-      await hub.emit('user:login', { userId: '123', timestamp: 1000 });
+      hub.emit('user:login', { userId: '123', timestamp: 1000 });
       expect(handler).not.toHaveBeenCalled();
     });
 
@@ -43,7 +43,7 @@ describe('EventHub core', () => {
       const controller = new AbortController();
       hub.on('user:login', handler, { signal: controller.signal });
       controller.abort();
-      await hub.emit('user:login', { userId: '123', timestamp: 1000 });
+      hub.emit('user:login', { userId: '123', timestamp: 1000 });
       expect(handler).not.toHaveBeenCalled();
     });
 
@@ -53,7 +53,7 @@ describe('EventHub core', () => {
       const h2 = vi.fn();
       hub.on('user:login', h1);
       hub.on('user:login', h2);
-      await hub.emit('user:login', { userId: 'x', timestamp: 1 });
+      hub.emit('user:login', { userId: 'x', timestamp: 1 });
       expect(h1).toHaveBeenCalledTimes(1);
       expect(h2).toHaveBeenCalledTimes(1);
     });
@@ -68,8 +68,8 @@ describe('EventHub core', () => {
       const hub = createTestHub();
       const handler = vi.fn();
       hub.onAny(handler);
-      await hub.emit('user:login', { userId: '1', timestamp: 1 });
-      await hub.emit('system:error', { message: 'boom', code: 500 });
+      hub.emit('user:login', { userId: '1', timestamp: 1 });
+      hub.emit('system:error', { message: 'boom', code: 500 });
       expect(handler).toHaveBeenCalledTimes(2);
       expect(handler).toHaveBeenCalledWith('user:login', { userId: '1', timestamp: 1 });
       expect(handler).toHaveBeenCalledWith('system:error', { message: 'boom', code: 500 });
@@ -84,7 +84,7 @@ describe('EventHub core', () => {
     it('resolves with payload when event fires', async () => {
       const hub = createTestHub();
       const promise = hub.once('user:login');
-      await hub.emit('user:login', { userId: '99', timestamp: 42 });
+      hub.emit('user:login', { userId: '99', timestamp: 42 });
       const result = await promise;
       expect(result).toEqual({ userId: '99', timestamp: 42 });
     });
@@ -117,7 +117,7 @@ describe('EventHub core', () => {
       hub.on('user:login', h1);
       hub.on('user:login', h2);
       hub.off('user:login', h1);
-      await hub.emit('user:login', { userId: 'x', timestamp: 1 });
+      hub.emit('user:login', { userId: 'x', timestamp: 1 });
       expect(h1).not.toHaveBeenCalled();
       expect(h2).toHaveBeenCalledTimes(1);
     });
@@ -129,7 +129,7 @@ describe('EventHub core', () => {
       hub.on('user:login', h1);
       hub.on('user:login', h2);
       hub.offAll('user:login');
-      await hub.emit('user:login', { userId: 'x', timestamp: 1 });
+      hub.emit('user:login', { userId: 'x', timestamp: 1 });
       expect(h1).not.toHaveBeenCalled();
       expect(h2).not.toHaveBeenCalled();
     });
@@ -140,7 +140,7 @@ describe('EventHub core', () => {
       hub.on('user:login', h1);
       hub.onAny(vi.fn());
       hub.offAll();
-      await hub.emit('user:login', { userId: 'x', timestamp: 1 });
+      hub.emit('user:login', { userId: 'x', timestamp: 1 });
       expect(h1).not.toHaveBeenCalled();
     });
   });
@@ -175,7 +175,7 @@ describe('EventHub core', () => {
     it('resolves with payload when event fires', async () => {
       const hub = createTestHub();
       const promise = hub.waitFor('user:login');
-      await hub.emit('user:login', { userId: '99', timestamp: 42 });
+      hub.emit('user:login', { userId: '99', timestamp: 42 });
       const result = await promise;
       expect(result).toEqual({ userId: '99', timestamp: 42 });
     });
@@ -197,8 +197,8 @@ describe('EventHub core', () => {
       const hub = createTestHub();
       const iterable = hub.events('user:login');
       const iter = iterable[Symbol.asyncIterator]();
-      await hub.emit('user:login', { userId: '1', timestamp: 1 });
-      await hub.emit('user:login', { userId: '2', timestamp: 2 });
+      hub.emit('user:login', { userId: '1', timestamp: 1 });
+      hub.emit('user:login', { userId: '2', timestamp: 2 });
 
       const result1 = await iter.next();
       expect(result1.value).toEqual({ userId: '1', timestamp: 1 });
@@ -207,6 +207,22 @@ describe('EventHub core', () => {
       const result2 = await iter.next();
       expect(result2.value).toEqual({ userId: '2', timestamp: 2 });
       expect(result2.done).toBe(false);
+    });
+
+    it('drops oldest events when buffer exceeds max', async () => {
+      const hub = createTestHub();
+      const iterable = hub.events('user:login', { bufferMax: 2 });
+      const iter = iterable[Symbol.asyncIterator]();
+
+      // Emit 3 events without consuming — should only keep last 2
+      hub.emit('user:login', { userId: '1', timestamp: 1 });
+      hub.emit('user:login', { userId: '2', timestamp: 2 });
+      hub.emit('user:login', { userId: '3', timestamp: 3 });
+
+      const r1 = await iter.next();
+      expect(r1.value).toEqual({ userId: '2', timestamp: 2 }); // '1' was dropped
+      const r2 = await iter.next();
+      expect(r2.value).toEqual({ userId: '3', timestamp: 3 });
     });
   });
 
@@ -226,7 +242,7 @@ describe('EventHub core', () => {
       });
       hub.on('user:login', h1);
 
-      await hub.emit('user:login', { userId: 'x', timestamp: 1 });
+      hub.emit('user:login', { userId: 'x', timestamp: 1 });
       expect(h1).toHaveBeenCalledTimes(1);
       expect(h2).toHaveBeenCalledTimes(1);
     });
@@ -240,7 +256,7 @@ describe('EventHub core', () => {
       });
 
       hub.on('user:login', h1);
-      await hub.emit('user:login', { userId: 'x', timestamp: 1 });
+      hub.emit('user:login', { userId: 'x', timestamp: 1 });
       expect(h1).toHaveBeenCalledTimes(1);
       expect(h2).not.toHaveBeenCalled();
     });
@@ -305,7 +321,7 @@ describe('EventHub core', () => {
       hub.dispose();
       expect(hub.listenerCount('user:login')).toBe(0);
       expect(() => hub.on('user:login', vi.fn())).toThrow('destroyed');
-      expect(() => hub.emit('user:login' as never, {} as never)).rejects.toThrow('destroyed');
+      expect(() => hub.emit('user:login' as never, {} as never)).toThrow('destroyed');
     });
   });
 
@@ -314,7 +330,7 @@ describe('EventHub core', () => {
   // ============================================================
 
   describe('error handling in emit', () => {
-    it('collects errors as AggregateError', async () => {
+    it('collects errors as AggregateError', () => {
       const hub = createTestHub();
       const h2 = vi.fn();
 
@@ -323,9 +339,9 @@ describe('EventHub core', () => {
       });
       hub.on('user:login', h2);
 
-      await expect(
-        hub.emit('user:login', { userId: 'x', timestamp: 1 }),
-      ).rejects.toThrow(AggregateError);
+      expect(() => {
+        hub.emit('user:login', { userId: 'x', timestamp: 1 });
+      }).toThrow(AggregateError);
       expect(h2).toHaveBeenCalledTimes(1);
     });
 
@@ -353,7 +369,7 @@ describe('EventHub core', () => {
     it('emits listenerAdded when subscribing', () => {
       const hub = createTestHub();
       const meta = vi.fn();
-      hub.on('listenerAdded' as keyof TestEvents, meta as never);
+      hub.on('listenerAdded' as keyof TestEvents & string, meta as never);
       hub.on('user:login', vi.fn());
       expect(meta).toHaveBeenCalledWith({ event: 'user:login' });
     });
@@ -361,10 +377,22 @@ describe('EventHub core', () => {
     it('emits listenerRemoved when unsubscribing', () => {
       const hub = createTestHub();
       const meta = vi.fn();
-      hub.on('listenerRemoved' as keyof TestEvents, meta as never);
+      hub.on('listenerRemoved' as keyof TestEvents & string, meta as never);
       const unsub = hub.on('user:login', vi.fn());
       unsub();
       expect(meta).toHaveBeenCalledWith({ event: 'user:login' });
+    });
+
+    it('emits listenerRemoved for each event on offAll()', () => {
+      const hub = createTestHub();
+      const meta = vi.fn();
+      hub.on('listenerRemoved' as keyof TestEvents & string, meta as never);
+      hub.on('user:login', vi.fn());
+      hub.on('order:created', vi.fn());
+      hub.offAll();
+      expect(meta).toHaveBeenCalledTimes(2);
+      expect(meta).toHaveBeenCalledWith({ event: 'user:login' });
+      expect(meta).toHaveBeenCalledWith({ event: 'order:created' });
     });
   });
 
