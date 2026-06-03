@@ -88,10 +88,10 @@ export class MemoryCache {
     for (const tag of tags) {
       const keys = this.#tagIndex.get(tag);
       if (keys) {
-        for (const key of keys) {
-          this.#store.delete(key);
+        for (const key of [...keys]) {
+          const entry = this.#store.get(key);
+          if (entry) this.#removeEntry(key, entry);
         }
-        this.#tagIndex.delete(tag);
       }
     }
   }

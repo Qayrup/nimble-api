@@ -233,7 +233,7 @@ export class ApiClient {
         if (stale) {
           state.cache = { key: cacheKey, hit: true, stale: true };
           // Return stale, revalidate in background
-          this.#doFetch(state, cacheKey, cacheTags, method).catch((err) => {
+          this.#doFetch(state, cacheKey, cacheTags).catch((err) => {
             state.error = err instanceof ApiError ? err : new ApiError(
               err instanceof Error ? err.message : String(err),
               { status: 0, data: null, request: state.request },
@@ -251,7 +251,7 @@ export class ApiClient {
       }
     }
 
-    const promise = this.#doFetch<T>(state, cacheKey, cacheTags, method);
+    const promise = this.#doFetch<T>(state, cacheKey, cacheTags);
 
     if (dedupKey) {
       this.#inFlight.set(dedupKey, promise);
@@ -270,7 +270,6 @@ export class ApiClient {
     state: RequestState,
     cacheKey: string,
     cacheTags: string[],
-    method: string,
   ): Promise<T> {
     // 4. Actually fetch
     const response = await this.#adapter.request({
@@ -352,7 +351,9 @@ export class ApiClient {
       baseUrl: this.#options.baseUrl ?? DEFAULT_OPTIONS.baseUrl,
       timeout: opts.timeout ?? this.#options.timeout ?? DEFAULT_OPTIONS.timeout,
       responseType: opts.responseType ?? DEFAULT_OPTIONS.responseType,
-      retry: opts.retry === false ? false : { ...DEFAULT_RETRY, ...this.#options.retry, ...opts.retry },
+      retry: opts.retry === false
+        ? false
+        : { ...DEFAULT_RETRY, ...(this.#options.retry !== false ? this.#options.retry : {}), ...opts.retry },
       cache: {
         ttl: reqCache?.ttl ?? clientCache?.ttl ?? DEFAULT_OPTIONS.cache.ttl,
         mode: reqCache?.mode ?? clientCache?.mode ?? DEFAULT_OPTIONS.cache.mode,
