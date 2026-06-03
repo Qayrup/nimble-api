@@ -9,13 +9,14 @@ type UniUploadFn = (config: Record<string, unknown>) => {
   abort?: () => void;
 };
 
-function getUni(): { request: UniRequestFn; uploadFile: UniUploadFn } | undefined {
-  const cache = (getUni as { _cache?: ReturnType<typeof getUni> })._cache;
-  if (cache !== undefined) return cache;
-  const uni = (globalThis as Record<string, unknown>).uni as
-    | { request: UniRequestFn; uploadFile: UniUploadFn }
-    | undefined;
-  (getUni as { _cache?: ReturnType<typeof getUni> })._cache = uni;
+type UniAPI = { request: UniRequestFn; uploadFile: UniUploadFn };
+
+let _uniCache: UniAPI | undefined | null;
+
+function getUni(): UniAPI | undefined {
+  if (_uniCache !== undefined) return _uniCache ?? undefined;
+  const uni = (globalThis as Record<string, unknown>).uni as UniAPI | undefined;
+  _uniCache = uni ?? null;
   return uni;
 }
 
@@ -32,6 +33,7 @@ export function createUniAppAdapter(): RequestAdapter {
         url,
         method: isUpload ? 'POST' : method,
         header: { 'Content-Type': 'application/json', ...headers },
+        data: body,
       };
 
       if (isUpload) {
@@ -44,20 +46,16 @@ export function createUniAppAdapter(): RequestAdapter {
             Promise.resolve(task as unknown as Promise<Record<string, unknown>>)
               .then((res) => {
                 resolve({
-                  status: (res.statusCode as number) || 200,
-                  data: (res.data as string) ? JSON.parse(res.data as string) : res,
+                  status: (res.statusCode as number) ?? 200,
+                  data: typeof res.data === 'string' ? JSON.parse(res.data) : res.data,
                   headers: {},
                 });
               })
               .catch((err: Error) => reject(err));
+          } else {
+            reject(new Error('UniApp uploadFile returned a non-promise task; callback-based API not supported'));
           }
         });
-      }
-
-      if (method === 'GET' || method === 'DELETE') {
-        requestConfig.data = body;
-      } else {
-        requestConfig.data = body;
       }
 
       const task = uni.request(requestConfig);
@@ -66,12 +64,14 @@ export function createUniAppAdapter(): RequestAdapter {
           Promise.resolve(task as unknown as Promise<Record<string, unknown>>)
             .then((res) => {
               resolve({
-                status: (res.statusCode as number) || 200,
+                status: (res.statusCode as number) ?? 200,
                 data: res.data,
-                headers: res.header as Record<string, string> || {},
+                headers: (res.header as Record<string, string>) || {},
               });
             })
             .catch((err: Error) => reject(err));
+        } else {
+          reject(new Error('UniApp request returned a non-promise task; callback-based API not supported'));
         }
       });
     },
