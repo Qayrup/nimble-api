@@ -1,38 +1,49 @@
-import { AdvancedEventEmitter } from './esm/index';
-import type { EventHubSettings, FlowMode } from './esm/index';
-export type { FlowMode };
+import { EventEmitter } from './core/EventEmitter';
+import type { EventMap, EventHubSettings } from './core/types';
 
-let singletonInstance: AdvancedEventEmitter | undefined;
+export { EventEmitter };
 
-// 工厂函数：创建新实例
-export function createAdvancedEvent(
-  eventConfig: Record<string, unknown> = {},
-  settings: EventHubSettings = {}
-): AdvancedEventEmitter {
-  return new AdvancedEventEmitter(eventConfig, settings);
+export type {
+  EventMap,
+  EventHandler,
+  WildcardHandler,
+  ListenerOptions,
+  Middleware,
+  PrefixKeys,
+  EventHubSettings,
+} from './core/types';
+
+let singletonInstance: EventEmitter<Record<string, unknown>> | undefined;
+
+export function createEventHub<T extends EventMap = Record<string, unknown>>(
+  settings?: EventHubSettings,
+): EventEmitter<T> {
+  return new EventEmitter<T>(settings);
 }
 
-// 单例初始化
-export function initAdvancedEvent(
-  userConfig: Record<string, unknown> = {},
-  settings: EventHubSettings = {}
-): AdvancedEventEmitter {
-  if (singletonInstance != null) {
-    console.warn('EventHub已初始化，返回现有实例');
-    return singletonInstance;
+export function initEventHub<T extends EventMap = Record<string, unknown>>(
+  settings?: EventHubSettings,
+): EventEmitter<T> {
+  if (singletonInstance) {
+    console.warn('[@nimble-api/eventhub] Already initialized, returning existing instance');
+    return singletonInstance as unknown as EventEmitter<T>;
   }
-  singletonInstance = createAdvancedEvent(userConfig, settings);
-  return singletonInstance;
+  singletonInstance = new EventEmitter<Record<string, unknown>>(settings);
+  return singletonInstance as unknown as EventEmitter<T>;
 }
 
-type ProxyHandler = {
-  get(_target: object, prop: string | symbol): unknown;
-  set(): never;
-  deleteProperty(): never;
-};
+export function destroyEventHub(): void {
+  singletonInstance?.destroy();
+  singletonInstance = undefined;
+}
 
-const proxyHandler: ProxyHandler = {
+const proxyHandler: ProxyHandler<object> = {
   get(_target, prop) {
+    if (!singletonInstance) {
+      throw new Error(
+        '[@nimble-api/eventhub] Not initialized. Call initEventHub() first.',
+      );
+    }
     const val = Reflect.get(singletonInstance as object, prop);
     if (typeof val === 'function') {
       return val.bind(singletonInstance);
@@ -40,11 +51,11 @@ const proxyHandler: ProxyHandler = {
     return val;
   },
   set: () => {
-    throw new Error('EventHub is read-only. Modifications blocked.');
+    throw new Error('[@nimble-api/eventhub] is read-only.');
   },
   deleteProperty: () => {
-    throw new Error('EventHub is read-only. Deletions blocked.');
-  }
+    throw new Error('[@nimble-api/eventhub] is read-only.');
+  },
 };
 
-export default new Proxy({}, proxyHandler) as AdvancedEventEmitter;
+export default new Proxy({}, proxyHandler) as EventEmitter;

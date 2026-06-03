@@ -1,256 +1,409 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { createAdvancedEvent } from '../index';
-import type { AdvancedEventEmitter } from '../esm/index';
-import { EnhancedPathPrefixMatcher } from '../esm/PathPrefixMatcher';
-import { safeObjectsToStrings, stringsToObject } from '../esm/objectTransformation';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createEventHub, initEventHub, destroyEventHub } from '../index';
+import { EventEmitter } from '../core/EventEmitter';
+import type { EventMap } from '../core/types';
 
-describe('createAdvancedEvent', () => {
-  let bus: AdvancedEventEmitter;
+interface TestEvents extends EventMap {
+  'user:login': { userId: string; timestamp: number };
+  'user:logout': { userId: string };
+  'order:created': { orderId: string; amount: number };
+  'order:paid': { orderId: string };
+  'system:error': { message: string; code: number };
+}
 
+function createTestEmitter(settings = {}) {
+  return createEventHub<TestEvents>(settings);
+}
+
+// ============================================================
+// EventEmitter 核心测试
+// ============================================================
+
+describe('EventEmitter core', () => {
+  describe('on() + emit()', () => {
+    it('registers and invokes handler with correct payload type', () => {
+      const emitter = createTestEmitter();
+      const handler = vi.fn();
+      emitter.on('user:login', handler);
+      emitter.emit('user:login', { userId: '123', timestamp: 1000 });
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler).toHaveBeenCalledWith({ userId: '123', timestamp: 1000 });
+    });
+
+    it('on() returns unsubscribe function', () => {
+      const emitter = createTestEmitter();
+      const handler = vi.fn();
+      const unsub = emitter.on('user:login', handler);
+      unsub();
+      emitter.emit('user:login', { userId: '123', timestamp: 1000 });
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('supports AbortSignal for auto-unsubscribe', () => {
+      const emitter = createTestEmitter();
+      const handler = vi.fn();
+      const controller = new AbortController();
+      emitter.on('user:login', handler, { signal: controller.signal });
+      controller.abort();
+      emitter.emit('user:login', { userId: '123', timestamp: 1000 });
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('supports once option', () => {
+      const emitter = createTestEmitter();
+      const handler = vi.fn();
+      emitter.on('user:login', handler, { once: true });
+      emitter.emit('user:login', { userId: 'a', timestamp: 1 });
+      emitter.emit('user:login', { userId: 'b', timestamp: 2 });
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('supports multiple handlers for same event', () => {
+      const emitter = createTestEmitter();
+      const h1 = vi.fn();
+      const h2 = vi.fn();
+      emitter.on('user:login', h1);
+      emitter.on('user:login', h2);
+      emitter.emit('user:login', { userId: 'x', timestamp: 1 });
+      expect(h1).toHaveBeenCalledTimes(1);
+      expect(h2).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns this from emit() for chaining', () => {
+      const emitter = createTestEmitter();
+      const result = emitter.emit('user:login', { userId: 'x', timestamp: 1 });
+      expect(result).toBe(emitter);
+    });
+  });
+
+  describe('wildcard *', () => {
+    it('receives all events with event name and payload', () => {
+      const emitter = createTestEmitter();
+      const handler = vi.fn();
+      emitter.on('*', handler);
+      emitter.emit('user:login', { userId: '1', timestamp: 1 });
+      emitter.emit('system:error', { message: 'boom', code: 500 });
+      expect(handler).toHaveBeenCalledTimes(2);
+      expect(handler).toHaveBeenCalledWith('user:login', { userId: '1', timestamp: 1 });
+      expect(handler).toHaveBeenCalledWith('system:error', { message: 'boom', code: 500 });
+    });
+
+    it('off("*") removes all wildcard handlers', () => {
+      const emitter = createTestEmitter();
+      const handler = vi.fn();
+      emitter.on('*', handler);
+      emitter.off('*');
+      emitter.emit('user:login', { userId: '1', timestamp: 1 });
+      expect(handler).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('off()', () => {
+    it('removes all handlers for an event', () => {
+      const emitter = createTestEmitter();
+      const h1 = vi.fn();
+      const h2 = vi.fn();
+      emitter.on('user:login', h1);
+      emitter.on('user:login', h2);
+      emitter.off('user:login');
+      emitter.emit('user:login', { userId: 'x', timestamp: 1 });
+      expect(h1).not.toHaveBeenCalled();
+      expect(h2).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('onPrefix()', () => {
+    it('matches all events under a colon-delimited prefix', () => {
+      const emitter = createTestEmitter();
+      const handler = vi.fn();
+      emitter.onPrefix('user:', handler);
+      emitter.emit('user:login', { userId: '1', timestamp: 1 });
+      emitter.emit('user:logout', { userId: '1' });
+      emitter.emit('order:created', { orderId: 'o1', amount: 100 });
+      expect(handler).toHaveBeenCalledTimes(2);
+    });
+
+    it('returns unsubscribe that removes all prefix listeners', () => {
+      const emitter = createTestEmitter();
+      const handler = vi.fn();
+      const unsub = emitter.onPrefix('order:', handler);
+      unsub();
+      emitter.emit('order:created', { orderId: 'o1', amount: 100 });
+      emitter.emit('order:paid', { orderId: 'o1' });
+      expect(handler).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('waitFor()', () => {
+    it('resolves with payload when event fires', async () => {
+      const emitter = createTestEmitter();
+      const promise = emitter.waitFor('user:login');
+      emitter.emit('user:login', { userId: '99', timestamp: 42 });
+      const result = await promise;
+      expect(result).toEqual({ userId: '99', timestamp: 42 });
+    });
+
+    it('rejects on timeout', async () => {
+      const emitter = createTestEmitter();
+      await expect(
+        emitter.waitFor('user:login', { timeout: 50 }),
+      ).rejects.toThrow();
+    });
+
+    it('rejects on AbortSignal', async () => {
+      const emitter = createTestEmitter();
+      const controller = new AbortController();
+      const promise = emitter.waitFor('user:login', { signal: controller.signal });
+      controller.abort();
+      await expect(promise).rejects.toThrow();
+    });
+  });
+
+  describe('events() async iterable', () => {
+    it('yields emitted events', async () => {
+      const emitter = createTestEmitter();
+      const iterable = emitter.events('user:login');
+      const iter = iterable[Symbol.asyncIterator]();
+      emitter.emit('user:login', { userId: '1', timestamp: 1 });
+      emitter.emit('user:login', { userId: '2', timestamp: 2 });
+
+      const result1 = await iter.next();
+      expect(result1.value).toEqual({ userId: '1', timestamp: 1 });
+      expect(result1.done).toBe(false);
+
+      const result2 = await iter.next();
+      expect(result2.value).toEqual({ userId: '2', timestamp: 2 });
+      expect(result2.done).toBe(false);
+    });
+
+    it('supports for-await-of', async () => {
+      const emitter = createTestEmitter();
+      const collected: unknown[] = [];
+
+      const controller = new AbortController();
+      const iterable = emitter.events('user:login', { signal: controller.signal });
+
+      // Emit after a tick so the iterator is already waiting
+      setTimeout(() => {
+        emitter.emit('user:login', { userId: '1', timestamp: 1 });
+        emitter.emit('user:login', { userId: '2', timestamp: 2 });
+        emitter.emit('user:login', { userId: '3', timestamp: 3 });
+        controller.abort();
+      }, 10);
+
+      try {
+        for await (const payload of iterable) {
+          collected.push(payload);
+        }
+      } catch {
+        // abort may throw here
+      }
+
+      // Should receive at least 2 events before abort stops iteration
+      expect(collected.length).toBeGreaterThanOrEqual(2);
+      expect(collected[0]).toEqual({ userId: '1', timestamp: 1 });
+    });
+  });
+
+  describe('snapshot-safe emit', () => {
+    it('removing handler during emit does not affect current cycle', () => {
+      const emitter = createTestEmitter();
+
+      const h2 = vi.fn();
+      const unsubH2 = emitter.on('user:login', h2);
+
+      const h1 = vi.fn(() => {
+        unsubH2();
+      });
+      emitter.on('user:login', h1);
+
+      emitter.emit('user:login', { userId: 'x', timestamp: 1 });
+      expect(h1).toHaveBeenCalledTimes(1);
+      expect(h2).toHaveBeenCalledTimes(1);
+    });
+
+    it('adding handler during emit does not affect current cycle', () => {
+      const emitter = createTestEmitter();
+      const h2 = vi.fn();
+
+      const h1 = vi.fn(() => {
+        emitter.on('user:login', h2);
+      });
+
+      emitter.on('user:login', h1);
+      emitter.emit('user:login', { userId: 'x', timestamp: 1 });
+      expect(h1).toHaveBeenCalledTimes(1);
+      expect(h2).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('listenerCount()', () => {
+    it('returns correct count after add/remove', () => {
+      const emitter = createTestEmitter();
+      const unsub1 = emitter.on('user:login', vi.fn());
+      emitter.on('user:login', vi.fn());
+      expect(emitter.listenerCount('user:login')).toBe(2);
+      unsub1();
+      expect(emitter.listenerCount('user:login')).toBe(1);
+    });
+
+    it('returns wildcard count', () => {
+      const emitter = createTestEmitter();
+      emitter.on('*', vi.fn());
+      emitter.on('*', vi.fn());
+      expect(emitter.listenerCount('*')).toBe(2);
+    });
+  });
+
+  describe('maxListeners', () => {
+    it('throws when exceeding limit', () => {
+      const emitter = createTestEmitter({ maxListeners: 2 });
+      emitter.on('user:login', vi.fn());
+      emitter.on('user:login', vi.fn());
+      expect(() => emitter.on('user:login', vi.fn())).toThrow('Max listeners');
+    });
+  });
+
+  describe('strictMode', () => {
+    it('throws on unregistered event emit in strict mode', () => {
+      const emitter = createTestEmitter({ strictMode: true });
+      expect(() =>
+        (emitter as unknown as EventEmitter).emit('nonexistent:event' as never, 'boom'),
+      ).toThrow();
+    });
+
+    it('allows unregistered events in non-strict mode', () => {
+      const emitter = createTestEmitter();
+      const handler = vi.fn();
+      emitter.on('custom:event' as unknown as keyof TestEvents & string, handler);
+      emitter.emit('custom:event' as unknown as keyof TestEvents & string, { foo: 'bar' } as never);
+      expect(handler).toHaveBeenCalled();
+    });
+  });
+
+  describe('destroy()', () => {
+    it('clears all handlers and prevents further operations', () => {
+      const emitter = createTestEmitter();
+      emitter.on('user:login', vi.fn());
+      emitter.destroy();
+      expect(emitter.listenerCount('user:login')).toBe(0);
+      expect(() => emitter.on('user:login', vi.fn())).toThrow('destroyed');
+    });
+  });
+
+  describe('error handling in emit', () => {
+    it('catching handler errors does not prevent other handlers', () => {
+      const emitter = createTestEmitter();
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const h2 = vi.fn();
+
+      emitter.on('user:login', () => {
+        throw new Error('handler crash');
+      });
+      emitter.on('user:login', h2);
+
+      emitter.emit('user:login', { userId: 'x', timestamp: 1 });
+      expect(h2).toHaveBeenCalledTimes(1);
+      expect(consoleSpy).toHaveBeenCalled();
+      consoleSpy.mockRestore();
+    });
+  });
+});
+
+// ============================================================
+// Middleware 测试
+// ============================================================
+
+describe('Middleware', () => {
+  it('middleware can transform payload', () => {
+    const emitter = createTestEmitter();
+    const handler = vi.fn();
+
+    emitter.use((event, payload, next) => {
+      (payload as { userId: string; timestamp: number }).timestamp = 999;
+      next();
+    });
+
+    emitter.on('user:login', handler);
+    emitter.emit('user:login', { userId: 'x', timestamp: 1 });
+    expect(handler).toHaveBeenCalledWith({ userId: 'x', timestamp: 999 });
+  });
+
+  it('middleware can filter events by skipping next()', () => {
+    const emitter = createTestEmitter();
+    const handler = vi.fn();
+
+    emitter.use((event, payload, next) => {
+      if ((payload as { userId: string }).userId === 'blocked') return;
+      next();
+    });
+
+    emitter.on('user:login', handler);
+    emitter.emit('user:login', { userId: 'blocked', timestamp: 1 });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('use() returns a function that removes the middleware', () => {
+    const emitter = createTestEmitter();
+    const handler = vi.fn();
+    const removeMw = emitter.use((_e, _p, next) => {
+      // transform nothing, just pass through
+      next();
+    });
+    removeMw();
+
+    emitter.on('user:login', handler);
+    emitter.emit('user:login', { userId: 'x', timestamp: 1 });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('middleware chain executes in registration order', () => {
+    const emitter = createTestEmitter();
+    const order: number[] = [];
+    const handler = vi.fn();
+
+    emitter.use((_e, _p, next) => {
+      order.push(1);
+      next();
+    });
+    emitter.use((_e, _p, next) => {
+      order.push(2);
+      next();
+    });
+
+    emitter.on('user:login', handler);
+    emitter.emit('user:login', { userId: 'x', timestamp: 1 });
+    expect(order).toEqual([1, 2]);
+  });
+});
+
+// ============================================================
+// 工厂函数 / 单例 / Proxy 测试
+// ============================================================
+
+describe('Factory & Singleton', () => {
   beforeEach(() => {
-    bus = createAdvancedEvent({}, { enabled: false });
+    destroyEventHub();
   });
 
-  it('should create an event bus instance', () => {
-    expect(bus).toBeDefined();
-    expect(typeof bus.on).toBe('function');
-    expect(typeof bus.emit).toBe('function');
-    expect(typeof bus.off).toBe('function');
+  it('createEventHub creates independent instances', () => {
+    const e1 = createEventHub<TestEvents>();
+    const e2 = createEventHub<TestEvents>();
+    const h1 = vi.fn();
+    e1.on('user:login', h1);
+    e2.emit('user:login', { userId: '1', timestamp: 1 });
+    expect(h1).not.toHaveBeenCalled();
   });
 
-  it('should generate EVENTKEY with BUILT errors', () => {
-    const keys = bus.getEventKey();
-    expect(keys).toHaveProperty('BUILT');
-    expect((keys as Record<string, unknown>).BUILT).toHaveProperty('ERROR');
+  it('initEventHub returns same instance on subsequent calls', () => {
+    const hub1 = initEventHub<TestEvents>();
+    const hub2 = initEventHub<TestEvents>();
+    expect(hub1).toBe(hub2);
   });
 
-  it('should register and emit events', () => {
-    let received = '';
-    bus.onKey('test.event', (...args: unknown[]) => {
-      received = args[0] as string;
-    });
-    bus.emit('test.event', 'hello');
-    expect(received).toBe('hello');
-  });
-
-  it('should respect maxListeners limit', () => {
-    bus.setListenerLimit(2);
-    bus.onKey('test.limit', () => {});
-    bus.onKey('test.limit', () => {});
-    expect(() => {
-      // The third handler should trigger deBug which throws
-      bus.onKey('test.limit', () => {});
-    }).toThrow();
-  });
-
-  it('should detect duplicate handlers', () => {
-    const handler = () => {};
-    bus.onKey('test.dup', handler);
-    expect(() => {
-      bus.onKey('test.dup', handler);
-    }).toThrow();
-  });
-
-  it('should remove handlers via off', () => {
-    let count = 0;
-    const handler = () => {
-      count++;
-    };
-    bus.onKey('test.off', handler);
-    bus.emit('test.off');
-    expect(count).toBe(1);
-
-    bus.off('test.off', handler);
-    bus.emit('test.off');
-    expect(count).toBe(1);
-  });
-
-  it('should support debounce mode', async () => {
-    const results: number[] = [];
-    bus.setListenerLimit(10);
-    bus.onKey('test.debounce', (...args: unknown[]) => {
-      results.push(args[0] as number);
-    }, { mode: 'debounce', timing: 50 });
-
-    bus.emit('test.debounce', 1);
-    bus.emit('test.debounce', 2);
-    bus.emit('test.debounce', 3);
-
-    await new Promise((r) => setTimeout(r, 100));
-
-    // Debounce should only fire the last one
-    expect(results).toEqual([3]);
-  });
-
-  it('should support once option', () => {
-    let count = 0;
-    bus.onKey('test.once', () => {
-      count++;
-    }, { once: true });
-
-    bus.emit('test.once');
-    bus.emit('test.once');
-    expect(count).toBe(1);
-  });
-
-  it('should clean up on destroy', () => {
-    bus.onKey('test.destroy', () => {});
-    bus.destroy();
-    // After destroy, EVENTKEY should be empty
-    expect(bus.EVENTKEY).toEqual({});
-  });
-
-  it('should support throttle mode', async () => {
-    const results: number[] = [];
-    bus.setListenerLimit(10);
-    bus.onKey('test.throttle', (...args: unknown[]) => {
-      results.push(args[0] as number);
-    }, { mode: 'throttle', timing: 50 });
-
-    bus.emit('test.throttle', 1);
-    bus.emit('test.throttle', 2);
-    bus.emit('test.throttle', 3);
-
-    await new Promise((r) => setTimeout(r, 80));
-
-    // Throttle (leading edge) fires first immediately, then last after delay
-    expect(results.length).toBeGreaterThanOrEqual(1);
-    expect(results[0]).toBe(1);
-  });
-
-  it('should support onAll with namespace prefix', () => {
-    bus = createAdvancedEvent(
-      { TEST: { A: '', B: '', C: '' } },
-      { enabled: false, maxNamespaceBatchSize: 10 }
-    );
-    const received: string[] = [];
-    const handler = (...args: unknown[]) => received.push(args[0] as string);
-
-    bus.onAll('eventConfig:TEST', handler);
-    bus.emit('eventConfig:TEST:A', 'a');
-    bus.emit('eventConfig:TEST:B', 'b');
-    bus.emit('eventConfig:TEST:C', 'c');
-
-    expect(received).toEqual(['a', 'b', 'c']);
-  });
-
-  it('should support offAll with namespace prefix', () => {
-    bus = createAdvancedEvent(
-      { TEST: { A: '', B: '' } },
-      { enabled: false, maxNamespaceBatchSize: 10 }
-    );
-    let count = 0;
-    const handler = () => { count++; };
-
-    bus.onAll('eventConfig:TEST', handler);
-    bus.emit('eventConfig:TEST:A');
-    expect(count).toBe(1);
-
-    bus.offAll('eventConfig:TEST', handler);
-    bus.emit('eventConfig:TEST:B');
-    expect(count).toBe(1);
-  });
-
-  it('on() with namespace prefix should delegate to onAll', () => {
-    bus = createAdvancedEvent(
-      { DEMO: { X: '', Y: '' } },
-      { enabled: false, maxNamespaceBatchSize: 10 }
-    );
-    const received: string[] = [];
-    bus.on('eventConfig:DEMO', (...args: unknown[]) => received.push(args[0] as string));
-    bus.emit('eventConfig:DEMO:X', 'x');
-    bus.emit('eventConfig:DEMO:Y', 'y');
-    expect(received).toEqual(['x', 'y']);
-  });
-
-  it('should allow setting custom deBug function', () => {
-    let errorMsg = '';
-    bus.setDeBug((msg) => {
-      errorMsg = msg;
-      throw new Error(msg);
-    });
-    expect(() => {
-      bus.onKey('bad', 'not-a-function' as unknown as () => void);
-    }).toThrow();
-    expect(errorMsg).toContain('事件处理器必须为函数');
-  });
-
-  it('should reject unknown config keys', () => {
-    expect(() => {
-      createAdvancedEvent({}, { unknownKey: true } as Record<string, unknown>);
-    }).toThrow(/未知配置项/);
-  });
-});
-
-describe('EnhancedPathPrefixMatcher', () => {
-  it('should build prefix map from paths', () => {
-    const matcher = new EnhancedPathPrefixMatcher(['A:B:C', 'A:B:D', 'X:Y']);
-    expect(matcher.isPathPrefix('A')).toBe(true);
-    expect(matcher.isPathPrefix('A:B')).toBe(true);
-    expect(matcher.isPathPrefix('X')).toBe(true);
-    expect(matcher.isPathPrefix('A:B:C')).toBe(false); // full path, not a prefix
-  });
-
-  it('should get paths by prefix', () => {
-    const matcher = new EnhancedPathPrefixMatcher(['A:B:C', 'A:B:D']);
-    const paths = matcher.getPathsByPrefix('A:B');
-    expect(paths).toEqual(['A:B:C', 'A:B:D']);
-  });
-
-  it('should add and remove paths dynamically', () => {
-    const matcher = new EnhancedPathPrefixMatcher(['A:B:C']);
-    matcher.addPath('A:B:E');
-    expect(matcher.getPathsByPrefix('A:B')).toHaveLength(2);
-
-    matcher.removePath('A:B:C');
-    expect(matcher.getPathsByPrefix('A:B')).toEqual(['A:B:E']);
-  });
-
-  it('should clear all paths', () => {
-    const matcher = new EnhancedPathPrefixMatcher(['A:B:C']);
-    matcher.clear();
-    expect(matcher.getPaths()).toEqual([]);
-    expect(matcher.getAllPrefixes()).toEqual([]);
-  });
-
-  it('should not duplicate paths on addPath', () => {
-    const matcher = new EnhancedPathPrefixMatcher(['A:B:C']);
-    matcher.addPath('A:B:C');
-    const paths = matcher.getPathsByPrefix('A:B');
-    expect(paths).toEqual(['A:B:C']);
-  });
-
-  it('should rebuild prefix map', () => {
-    const matcher = new EnhancedPathPrefixMatcher([]);
-    matcher.addPath('X:Y:Z');
-    matcher.rebuild();
-    expect(matcher.isPathPrefix('X:Y')).toBe(true);
-  });
-});
-
-describe('objectTransformation', () => {
-  it('safeObjectsToStrings should convert nested objects to path strings', () => {
-    const result = safeObjectsToStrings({ A: { B: 'leaf', C: 'leaf' } });
-    expect(result.sort()).toEqual(['A:B', 'A:C']);
-  });
-
-  it('safeObjectsToStrings should detect structural conflicts', () => {
-    expect(() => {
-      safeObjectsToStrings(
-        { A: { B: 'leaf' } },
-        { A: 'also-leaf' }
-      );
-    }).toThrow(/结构冲突/);
-  });
-
-  it('stringsToObject should convert paths back to nested object', () => {
-    const obj = stringsToObject(['A:B', 'A:C']);
-    expect(obj).toHaveProperty('A');
-    expect((obj.A as Record<string, unknown>).B).toBe('A:B');
-    expect((obj.A as Record<string, unknown>).C).toBe('A:C');
-  });
-
-  it('stringsToObject should reject leaf-then-child conflicts', () => {
-    expect(() => stringsToObject(['A:B', 'A:B:C'])).toThrow(/路径冲突/);
+  it('destroyEventHub tears down singleton', () => {
+    initEventHub<TestEvents>();
+    destroyEventHub();
+    expect(() => initEventHub<TestEvents>()).not.toThrow();
   });
 });

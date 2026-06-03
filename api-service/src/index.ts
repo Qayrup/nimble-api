@@ -1,77 +1,71 @@
-import { ApiService, apiProxyHandler } from './esm/apiService/apiService';
-import { setEventBus } from './esm/apiService/baseApi';
-import type { ApiConfig, ApiSettings } from './esm/apiService/baseApi';
-import { initAdvancedEvent } from '@nimble-api/eventhub';
+import { ApiClient, apiProxyHandler } from './core/ApiClient';
+import type { ApiConfig, ApiClientSettings, ApiMethod, CallOptions, ApiPlugin, RequestAdapter, EndpointConfig } from './core/types';
+import { MemoryCache } from './core/cache';
+import { PluginManager } from './plugins/manager';
+import { createFetchAdapter } from './adapters/fetch';
+import { createUniAppAdapter } from './adapters/uniapp';
 
-export { OPTIMIZE_TYPES } from './esm/optimizers/constants';
-export type { OptimizeType } from './esm/optimizers/constants';
+export type {
+  ApiConfig,
+  ApiClientSettings,
+  ApiMethod,
+  CallOptions,
+  ApiPlugin,
+  RequestAdapter,
+  EndpointConfig,
+};
 
-// 工厂函数：创建新实例
-export function createApiService(
-  apiConfig: ApiConfig = {},
-  settings: ApiSettings = {}
-): ApiService {
-  return new Proxy(new ApiService(apiConfig, settings), apiProxyHandler) as unknown as ApiService;
+export { MemoryCache, PluginManager, createFetchAdapter, createUniAppAdapter };
+
+let singletonInstance: ApiClient | undefined;
+
+export function createApiClient(
+  config: ApiConfig,
+  settings?: ApiClientSettings,
+): ApiClient {
+  const client = new ApiClient(config, settings);
+  return new Proxy(client, apiProxyHandler) as unknown as ApiClient;
 }
 
-// 单例实例
-let singletonInstance: ApiService | null = null;
-
-// 单例初始化
-export function initApiService(
-  userConfig: ApiConfig = {},
-  settings: ApiSettings = {}
-): ApiService {
-  if (singletonInstance !== null) {
+export function initApiClient(
+  config: ApiConfig,
+  settings?: ApiClientSettings,
+): ApiClient {
+  if (singletonInstance) {
+    console.warn('[@nimble-api/api-service] Already initialized, returning existing instance');
     return singletonInstance;
   }
-  singletonInstance = createApiService(userConfig, settings);
-
-  // 自动初始化事件总线连接
-  try {
-    const eventHub = initAdvancedEvent();
-    setEventBus(eventHub as unknown as { emit: (key: string, payload: unknown) => unknown });
-  } catch (e) {
-    console.warn('[@nimble-api/api-service] 事件总线初始化失败，事件派发功能不可用:', e);
-  }
-
+  singletonInstance = createApiClient(config, settings) as unknown as ApiClient;
   return singletonInstance;
 }
 
-// 获取单例
-export function getApiService(): ApiService {
+export function getApiClient(): ApiClient {
   if (!singletonInstance) {
-    throw new Error('请先调用 initApiService 初始化API服务');
+    throw new Error('[@nimble-api/api-service] Not initialized. Call initApiClient() first.');
   }
   return singletonInstance;
 }
 
-// 销毁单例
-export function destroyApiService(): void {
-  if (singletonInstance) {
-    singletonInstance.destroy();
-    singletonInstance = null;
-  }
-  setEventBus(null);
+export function destroyApiClient(): void {
+  singletonInstance?.destroy();
+  singletonInstance = undefined;
 }
 
 const proxyHandler: ProxyHandler<object> = {
-  get(_target, prop, _receiver) {
+  get(_target, prop) {
     if (!singletonInstance) {
-      throw new Error('请先调用 initApiService 初始化API服务');
+      throw new Error(
+        '[@nimble-api/api-service] Not initialized. Call initApiClient() first.',
+      );
     }
-    const val = Reflect.get(singletonInstance as object, prop, _receiver);
-    if (typeof val === 'function') {
-      return val.bind(singletonInstance);
-    }
-    return val;
+    return Reflect.get(singletonInstance, prop);
   },
-  set() {
-    throw new Error('ApiService is read-only. Modifications blocked.');
+  set: () => {
+    throw new Error('[@nimble-api/api-service] is read-only.');
   },
-  deleteProperty() {
-    throw new Error('ApiService is read-only. Deletions blocked.');
-  }
+  deleteProperty: () => {
+    throw new Error('[@nimble-api/api-service] is read-only.');
+  },
 };
 
-export default new Proxy({}, proxyHandler) as ApiService;
+export default new Proxy({}, proxyHandler) as ApiClient;
