@@ -1,3 +1,10 @@
+declare global {
+  interface SymbolConstructor {
+    readonly dispose: unique symbol;
+    readonly asyncDispose: unique symbol;
+  }
+}
+
 export type EventMap = Record<string, unknown>;
 
 export interface SubscribeOptions {
