@@ -394,6 +394,20 @@ describe('EventHub core', () => {
       expect(meta).toHaveBeenCalledWith({ event: 'user:login' });
       expect(meta).toHaveBeenCalledWith({ event: 'order:created' });
     });
+
+    it('emits meta events for onAny', () => {
+      const hub = createTestHub();
+      const added = vi.fn();
+      const removed = vi.fn();
+      hub.on('listenerAdded' as keyof TestEvents & string, added as never);
+      hub.on('listenerRemoved' as keyof TestEvents & string, removed as never);
+
+      const unsub = hub.onAny(vi.fn());
+      expect(added).toHaveBeenCalledWith({ event: '*' });
+
+      unsub();
+      expect(removed).toHaveBeenCalledWith({ event: '*' });
+    });
   });
 
   // ============================================================

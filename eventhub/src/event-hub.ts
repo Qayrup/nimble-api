@@ -66,8 +66,15 @@ export class EventHub<T extends EventMap = Record<string, unknown>> {
     const record: HandlerRecord = { raw: handler as AnyHandler };
     this.#anyHandlers.add(record);
 
+    if (!this.#emittingMeta) {
+      this.#emitMeta('listenerAdded', { event: '*' });
+    }
+
     const unsub = (): void => {
       this.#anyHandlers.delete(record);
+      if (!this.#emittingMeta) {
+        this.#emitMeta('listenerRemoved', { event: '*' });
+      }
     };
 
     if (opts?.signal) {
