@@ -195,6 +195,7 @@ export class ApiClient {
           return attempt();
         }
 
+        self.#dispatchEvents(errorState);
         throw errorState.error;
       }
     }
@@ -412,8 +413,8 @@ export class ApiClient {
     const data = state.response?.data;
     const status = state.response?.status;
 
-    // onSuccess
-    if (status != null && status >= 200 && status < 300 && state.options.onSuccess.length > 0) {
+    // onSuccess — only fire on actual success, not when error is set
+    if (!state.error && status != null && status >= 200 && status < 300 && state.options.onSuccess.length > 0) {
       for (const key of state.options.onSuccess) {
         try { hub.emit(key, data); } catch { /* event errors are non-critical */ }
       }
