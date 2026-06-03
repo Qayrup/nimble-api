@@ -375,15 +375,12 @@ export class ApiClient {
       url = buildUrl(url, opts.params);
     }
     if (opts.searchParams) {
-      const entries = Object.entries(opts.searchParams);
-      if (entries.length > 0) {
-        const sp = new URLSearchParams();
-        for (const [k, v] of entries) {
-          sp.append(k, String(v));
-        }
-        const qs = sp.toString();
-        if (qs) url = url + (url.includes('?') ? '&' : '?') + qs;
+      const sp = new URLSearchParams();
+      for (const [k, v] of Object.entries(opts.searchParams)) {
+        sp.append(k, String(v));
       }
+      const qs = sp.toString();
+      if (qs) url = url + (url.includes('?') ? '&' : '?') + qs;
     }
     const baseUrl = this.#options.baseUrl ?? '';
     return baseUrl ? baseUrl + url : url;
