@@ -42,7 +42,7 @@ export function createTypedApi<T extends ApiDefinition>(
         case 'PUT': return client.put(url, requestOpts);
         case 'PATCH': return client.patch(url, requestOpts);
         case 'DELETE': return client.delete(url, requestOpts);
-        default: return client.get(url, requestOpts);
+        default: throw new Error(`[@nimble-api/api-service] Unsupported HTTP method: ${method}`);
       }
     }) as TypedApi<T>[typeof name];
   }
