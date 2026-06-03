@@ -174,6 +174,9 @@ export class EventHub<T extends EventMap = Record<string, unknown>> {
         this.#emitMeta('listenerRemoved', { event: name });
       }
       this.#handlers.clear();
+      if (this.#anyHandlers.size > 0) {
+        this.#emitMeta('listenerRemoved', { event: '*' });
+      }
       this.#anyHandlers.clear();
     }
   }

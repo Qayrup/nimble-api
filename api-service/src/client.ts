@@ -233,7 +233,13 @@ export class ApiClient {
         if (stale) {
           state.cache = { key: cacheKey, hit: true, stale: true };
           // Return stale, revalidate in background
-          this.#doFetch(state, cacheKey, cacheTags, method).catch(() => {});
+          this.#doFetch(state, cacheKey, cacheTags, method).catch((err) => {
+            state.error = err instanceof ApiError ? err : new ApiError(
+              err instanceof Error ? err.message : String(err),
+              { status: 0, data: null, request: state.request },
+            );
+            this.#dispatchEvents(state);
+          });
           return stale.data as T;
         }
       } else if (cacheMode === 'ttl') {
@@ -369,12 +375,15 @@ export class ApiClient {
       url = buildUrl(url, opts.params);
     }
     if (opts.searchParams) {
-      const sp = new URLSearchParams();
-      for (const [k, v] of Object.entries(opts.searchParams)) {
-        sp.append(k, String(v));
+      const entries = Object.entries(opts.searchParams);
+      if (entries.length > 0) {
+        const sp = new URLSearchParams();
+        for (const [k, v] of entries) {
+          sp.append(k, String(v));
+        }
+        const qs = sp.toString();
+        if (qs) url = url + (url.includes('?') ? '&' : '?') + qs;
       }
-      const qs = sp.toString();
-      if (qs) url = url + (url.includes('?') ? '&' : '?') + qs;
     }
     const baseUrl = this.#options.baseUrl ?? '';
     return baseUrl ? baseUrl + url : url;
