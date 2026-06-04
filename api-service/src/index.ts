@@ -7,7 +7,7 @@ export { createFetchAdapter } from './adapters/fetch';
 export { createUniAppAdapter } from './adapters/uniapp';
 export { createXhrAdapter } from './adapters/xhr';
 export { createTypedApi } from './typed';
-export { ApiError, stop } from './core/types';
+export { ApiError, NetworkError, stop } from './core/types';
 export { calcBackoff, shouldRetry, DEFAULT_RETRY } from './retry';
 export { runBeforeRequest, runAfterResponse, runBeforeRetry, runBeforeError, runInitHooks } from './hooks';
 export { createBearerAuth } from './auth';

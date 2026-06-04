@@ -4,7 +4,7 @@ import { generateCacheKey } from './utils/cache-key';
 import { createFetchAdapter } from './adapters/fetch';
 import { runBeforeRequest, runAfterResponse, runBeforeRetry, runBeforeError, runInitHooks } from './hooks';
 import { calcBackoff, shouldRetry, DEFAULT_RETRY } from './retry';
-import { stop } from './core/types';
+import { stop, NetworkError } from './core/types';
 import { readCookie } from './utils/cookie';
 import type {
   ApiOptions,
@@ -192,14 +192,9 @@ export class ApiClient {
       try {
         return await this.#executeOnce<T>(state, cacheKey);
       } catch (err) {
-        const error = err instanceof ApiError ? err : new ApiError(
+        const error = err instanceof ApiError ? err : new NetworkError(
           err instanceof Error ? err.message : String(err),
-          {
-            code: 'ERR_NETWORK',
-            status: 0,
-            data: null,
-            request: state.request,
-          },
+          { request: state.request },
         );
 
         state.error = error;
@@ -284,9 +279,9 @@ export class ApiClient {
           state.cache = { key: cacheKey, hit: true, stale: true };
           // Return stale, revalidate in background
           this.#doFetch(state, cacheKey, cacheTags).catch((err) => {
-            state.error = err instanceof ApiError ? err : new ApiError(
+            state.error = err instanceof ApiError ? err : new NetworkError(
               err instanceof Error ? err.message : String(err),
-              { code: 'ERR_NETWORK', status: 0, data: null, request: state.request },
+              { request: state.request },
             );
             this.#dispatchEvents(state);
           });

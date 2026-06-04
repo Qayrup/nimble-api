@@ -233,6 +233,19 @@ export class ApiError extends Error {
   }
 }
 
+export class NetworkError extends ApiError {
+  name = 'NetworkError';
+
+  constructor(message: string, opts: { request: { url: string; method: string } }) {
+    super(message, {
+      code: 'ERR_NETWORK',
+      status: 0,
+      data: null,
+      request: opts.request,
+    });
+  }
+}
+
 // === Endpoint Spec (for typed API) ===
 
 export interface EndpointSpec {
