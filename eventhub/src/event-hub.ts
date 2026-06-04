@@ -3,6 +3,36 @@ import type { SubscribeOptions, Unsubscribe, MetaEventPayloads } from './core/ty
 
 type AnyHandler = (...args: unknown[]) => void;
 
+function wrapDebounce(fn: AnyHandler, ms: number): AnyHandler {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return (...args: unknown[]) => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      fn(...args);
+    }, ms);
+  };
+}
+
+function wrapThrottle(fn: AnyHandler, ms: number): AnyHandler {
+  let lastTime = 0;
+  let trailing: ReturnType<typeof setTimeout> | undefined;
+  return (...args: unknown[]) => {
+    const now = Date.now();
+    if (now - lastTime >= ms) {
+      lastTime = now;
+      if (trailing !== undefined) { clearTimeout(trailing); trailing = undefined; }
+      fn(...args);
+    } else if (trailing === undefined) {
+      trailing = setTimeout(() => {
+        trailing = undefined;
+        lastTime = Date.now();
+        fn(...args);
+      }, ms - (now - lastTime));
+    }
+  };
+}
+
 interface HandlerRecord {
   raw: AnyHandler;
 }
@@ -43,7 +73,8 @@ export class EventHub<T = Record<string, unknown>> {
       throw new TypeError(`[@nimble-api/eventhub] Handler must be a function, got ${typeof handler}`);
     }
 
-    const record: HandlerRecord = { raw: handler as AnyHandler };
+    const raw = this.#wrapHandler(handler as AnyHandler, opts);
+    const record: HandlerRecord = { raw };
 
     if (!this.#handlers.has(event)) {
       this.#handlers.set(event, []);
@@ -85,7 +116,8 @@ export class EventHub<T = Record<string, unknown>> {
     }
 
     const regex = globToRegex(pattern, this.#delimiter);
-    const record: HandlerRecord = { raw: handler as AnyHandler };
+    const raw = this.#wrapHandler(handler as AnyHandler, opts);
+    const record: HandlerRecord = { raw };
     const wc: WildcardRecord = { pattern, regex, record };
     this.#wildcardHandlers.push(wc);
 
@@ -159,7 +191,8 @@ export class EventHub<T = Record<string, unknown>> {
       throw new TypeError(`[@nimble-api/eventhub] Handler must be a function, got ${typeof handler}`);
     }
 
-    const record: HandlerRecord = { raw: handler as AnyHandler };
+    const raw = this.#wrapHandler(handler as AnyHandler, opts);
+    const record: HandlerRecord = { raw };
     this.#anyHandlers.push(record);
 
     this.#checkMaxListeners('*');
@@ -583,6 +616,36 @@ export class EventHub<T = Record<string, unknown>> {
     return this.#maxListeners;
   }
 
+  // === 流控链 ===
+
+  debounce(ms: number) {
+    return {
+      on: <K extends keyof T & string>(
+        event: K, handler: (payload: T[K]) => void, opts?: SubscribeOptions,
+      ) => this.on(event, handler, { ...opts, debounce: ms }),
+      onPattern: (
+        pattern: string, handler: (event: string, payload: T[keyof T]) => void, opts?: SubscribeOptions,
+      ) => this.onPattern(pattern, handler, { ...opts, debounce: ms }),
+      onAny: (
+        handler: (event: keyof T & string, payload: T[keyof T]) => void, opts?: SubscribeOptions,
+      ) => this.onAny(handler, { ...opts, debounce: ms }),
+    };
+  }
+
+  throttle(ms: number) {
+    return {
+      on: <K extends keyof T & string>(
+        event: K, handler: (payload: T[K]) => void, opts?: SubscribeOptions,
+      ) => this.on(event, handler, { ...opts, throttle: ms }),
+      onPattern: (
+        pattern: string, handler: (event: string, payload: T[keyof T]) => void, opts?: SubscribeOptions,
+      ) => this.onPattern(pattern, handler, { ...opts, throttle: ms }),
+      onAny: (
+        handler: (event: keyof T & string, payload: T[keyof T]) => void, opts?: SubscribeOptions,
+      ) => this.onAny(handler, { ...opts, throttle: ms }),
+    };
+  }
+
   // === 生命周期 ===
 
   clear(): void {
@@ -603,6 +666,17 @@ export class EventHub<T = Record<string, unknown>> {
   }
 
   // === 私有方法 ===
+
+  #wrapHandler(handler: AnyHandler, opts?: SubscribeOptions): AnyHandler {
+    let wrapped = handler;
+    // Do NOT apply both — throttle takes precedence if both are set
+    if (opts?.throttle != null) {
+      wrapped = wrapThrottle(wrapped, opts.throttle);
+    } else if (opts?.debounce != null) {
+      wrapped = wrapDebounce(wrapped, opts.debounce);
+    }
+    return wrapped;
+  }
 
   #checkDestroyed(): void {
     if (this.#destroyed) throw new Error('[@nimble-api/eventhub] Instance is destroyed');

@@ -7,6 +7,10 @@ declare global {
 
 export interface SubscribeOptions {
   signal?: AbortSignal;
+  /** Debounce in ms — handler fires after the event stream has been silent for this duration */
+  debounce?: number;
+  /** Throttle in ms — handler fires at most once per this duration (leading edge) */
+  throttle?: number;
 }
 
 export type Unsubscribe = () => void;

@@ -771,4 +771,65 @@ describe('EventHub core', () => {
       expect(meta).toHaveBeenCalledWith({ event: 'user:login' });
     });
   });
+
+  // ============================================================
+  // debounce / throttle
+  // ============================================================
+
+  describe('debounce', () => {
+    it('delays handler until event stream settles (options)', async () => {
+      const hub = createTestHub();
+      const handler = vi.fn();
+      hub.on('user:login', handler, { debounce: 50 });
+
+      hub.emit('user:login', { userId: '1', timestamp: 1 });
+      hub.emit('user:login', { userId: '2', timestamp: 2 });
+      hub.emit('user:login', { userId: '3', timestamp: 3 });
+
+      expect(handler).not.toHaveBeenCalled();
+      await new Promise(r => setTimeout(r, 60));
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler).toHaveBeenCalledWith({ userId: '3', timestamp: 3 });
+    });
+
+    it('chain: hub.debounce(ms).on()', async () => {
+      const hub = createTestHub();
+      const handler = vi.fn();
+      hub.debounce(50).on('user:login', handler);
+
+      hub.emit('user:login', { userId: '1', timestamp: 1 });
+      hub.emit('user:login', { userId: '2', timestamp: 2 });
+
+      expect(handler).not.toHaveBeenCalled();
+      await new Promise(r => setTimeout(r, 60));
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('throttle', () => {
+    it('fires first call immediately, then throttles (options)', async () => {
+      const hub = createTestHub();
+      const handler = vi.fn();
+      hub.on('user:login', handler, { throttle: 100 });
+
+      hub.emit('user:login', { userId: '1', timestamp: 1 });
+      hub.emit('user:login', { userId: '2', timestamp: 2 });
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      await new Promise(r => setTimeout(r, 110));
+      hub.emit('user:login', { userId: '3', timestamp: 3 });
+      expect(handler).toHaveBeenCalledTimes(2);
+    });
+
+    it('chain: hub.throttle(ms).on()', async () => {
+      const hub = createTestHub();
+      const handler = vi.fn();
+      hub.throttle(100).on('user:login', handler);
+
+      hub.emit('user:login', { userId: '1', timestamp: 1 });
+      hub.emit('user:login', { userId: '2', timestamp: 2 });
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+  });
 });
