@@ -44,15 +44,24 @@ export function createFetchAdapter(timeout = 30000): RequestAdapter {
         });
 
         let data: unknown;
-        const contentType = res.headers.get('content-type');
-        if (contentType?.includes('application/json')) {
-          try {
-            data = await res.json();
-          } catch {
-            throw new Error(`Invalid JSON response from ${url} (status ${res.status})`);
-          }
-        } else {
+        const responseType = config.responseType ?? 'json';
+        if (responseType === 'blob') {
+          data = await res.blob();
+        } else if (responseType === 'arrayBuffer') {
+          data = await res.arrayBuffer();
+        } else if (responseType === 'text') {
           data = await res.text();
+        } else {
+          const contentType = res.headers.get('content-type');
+          if (contentType?.includes('application/json')) {
+            try {
+              data = await res.json();
+            } catch {
+              throw new Error(`Invalid JSON response from ${url} (status ${res.status})`);
+            }
+          } else {
+            data = await res.text();
+          }
         }
 
         const resHeaders: Record<string, string> = {};
