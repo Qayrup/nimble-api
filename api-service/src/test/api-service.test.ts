@@ -296,6 +296,20 @@ describe('Retry', () => {
     expect(attempts).toBe(3);
   });
 
+  it('retry: false at client level disables retry', async () => {
+    let attempts = 0;
+    const adapter: RequestAdapter = {
+      async request() {
+        attempts++;
+        return { status: 500, data: {}, headers: {} };
+      },
+    };
+    const client = makeClient(adapter, { retry: false });
+
+    await expect(client.get('/api/fail')).rejects.toThrow(ApiError);
+    expect(attempts).toBe(1);
+  });
+
   it('throws after exhausting retries', async () => {
     const adapter: RequestAdapter = {
       async request() {

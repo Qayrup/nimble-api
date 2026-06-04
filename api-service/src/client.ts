@@ -22,7 +22,7 @@ const DEFAULT_OPTIONS: NormalizedRequestOptions = {
   baseUrl: '',
   timeout: 30000,
   responseType: 'json',
-  retry: false,
+  retry: { ...DEFAULT_RETRY },
   cache: { ttl: 0, mode: 'ttl', tags: [], skip: false },
   onSuccess: [],
   onError: null,
@@ -425,7 +425,11 @@ export class ApiClient {
       responseType: opts.responseType ?? DEFAULT_OPTIONS.responseType,
       retry: opts.retry === false
         ? false
-        : { ...DEFAULT_RETRY, ...(this.#options.retry !== false ? this.#options.retry : {}), ...opts.retry },
+        : opts.retry
+          ? { ...DEFAULT_RETRY, ...(this.#options.retry !== false ? this.#options.retry : {}), ...opts.retry }
+          : this.#options.retry === false
+            ? false
+            : { ...DEFAULT_RETRY, ...(this.#options.retry ?? {}) },
       cache: {
         ttl: reqCache?.ttl ?? clientCache?.ttl ?? DEFAULT_OPTIONS.cache.ttl,
         mode: reqCache?.mode ?? clientCache?.mode ?? DEFAULT_OPTIONS.cache.mode,
