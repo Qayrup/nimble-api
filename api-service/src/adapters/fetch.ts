@@ -66,7 +66,7 @@ export function createFetchAdapter(timeout = 30000): RequestAdapter {
 
         const resHeaders: Record<string, string> = {};
         res.headers.forEach((val, key) => {
-          resHeaders[key] = val;
+          resHeaders[key.toLowerCase()] = val;
         });
 
         return { status: res.status, data, headers: resHeaders };
