@@ -96,7 +96,11 @@ export function createXhrAdapter(timeout = 30000): RequestAdapter {
 
         // Body
         if (config.body != null && config.method !== 'GET' && config.method !== 'DELETE') {
-          xhr.send(typeof config.body === 'string' ? config.body : JSON.stringify(config.body));
+          if (config.body instanceof FormData) {
+            xhr.send(config.body);
+          } else {
+            xhr.send(typeof config.body === 'string' ? config.body : JSON.stringify(config.body));
+          }
         } else {
           xhr.send();
         }

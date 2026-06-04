@@ -35,11 +35,12 @@ export function createFetchAdapter(timeout = 30000): RequestAdapter {
       }
 
       const hasBody = method !== 'GET' && method !== 'DELETE' && body != null;
+      const isFormData = body instanceof FormData;
       try {
         const res = await fetch(url, {
           method,
           headers,
-          body: hasBody ? JSON.stringify(body) : undefined,
+          body: hasBody ? (isFormData ? (body as FormData) : JSON.stringify(body)) : undefined,
           signal: controller.signal,
         });
 

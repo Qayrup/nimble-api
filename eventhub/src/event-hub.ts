@@ -13,6 +13,10 @@ interface WildcardRecord {
   record: HandlerRecord;
 }
 
+export interface EventHubOptions {
+  delimiter?: string;
+}
+
 export class EventHub<T = Record<string, unknown>> {
   #handlers = new Map<string, HandlerRecord[]>();
   #anyHandlers: HandlerRecord[] = [];
@@ -21,6 +25,11 @@ export class EventHub<T = Record<string, unknown>> {
   #emittingMeta = false;
   #maxListeners: number = Infinity;
   #warned = new Set<string>();
+  #delimiter: string;
+
+  constructor(options?: EventHubOptions) {
+    this.#delimiter = options?.delimiter ?? ':./';
+  }
 
   // === 订阅 ===
 
@@ -75,7 +84,7 @@ export class EventHub<T = Record<string, unknown>> {
       throw new TypeError(`[@nimble-api/eventhub] Handler must be a function, got ${typeof handler}`);
     }
 
-    const regex = globToRegex(pattern);
+    const regex = globToRegex(pattern, this.#delimiter);
     const record: HandlerRecord = { raw: handler as AnyHandler };
     const wc: WildcardRecord = { pattern, regex, record };
     this.#wildcardHandlers.push(wc);

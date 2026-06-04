@@ -176,14 +176,14 @@ export class MemoryCache {
       maxSize: number;
     };
 
-    this.#maxSize = state.maxSize;
+    this.#maxSize = state.maxSize ?? Infinity;
 
     for (const item of state.entries) {
       const entry: CacheEntry = {
         data: item.data,
         timestamp: item.timestamp,
-        staleTime: item.staleTime,
-        gcTime: item.gcTime,
+        staleTime: item.staleTime ?? Infinity,
+        gcTime: item.gcTime ?? Infinity,
         lastAccess: item.lastAccess,
         tags: item.tags,
       };
