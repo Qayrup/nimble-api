@@ -258,6 +258,8 @@ export interface EndpointSpec<
   _params?: TParams;
   /** Phantom field — only used for response type inference, never accessed at runtime */
   _response?: TResponse;
+  /** Prevent concurrent calls to this endpoint. While a call is in-flight, subsequent calls return null immediately. */
+  lock?: boolean;
   cache?: RequestOptions['cache'];
   retry?: RequestOptions['retry'];
   schema?: SchemaValidator;

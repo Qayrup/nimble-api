@@ -474,6 +474,50 @@ describe('createTypedApi', () => {
     expect(newUser).toEqual({ name: 'Bob' });
   });
 
+  it('lock: true prevents concurrent calls and returns null', async () => {
+    let inFlight = 0;
+    const adapter: RequestAdapter = {
+      async request() {
+        inFlight++;
+        await new Promise(r => setTimeout(r, 50));
+        return { status: 200, data: { ok: true }, headers: {} };
+      },
+    };
+    const client = makeClient(adapter);
+    const { createTypedApi } = await import('../typed');
+    const api = createTypedApi(client, {
+      guarded: { url: '/api/guard', lock: true },
+    });
+
+    const [r1, r2] = await Promise.all([
+      api.guarded(),
+      api.guarded(),
+    ]);
+
+    expect(r1).toEqual({ ok: true });
+    expect(r2).toBeNull();
+    expect(inFlight).toBe(1);
+  });
+
+  it('lock: true unlocks after completion for next call', async () => {
+    const adapter: RequestAdapter = {
+      async request() {
+        return { status: 200, data: { ok: true }, headers: {} };
+      },
+    };
+    const client = makeClient(adapter);
+    const { createTypedApi } = await import('../typed');
+    const api = createTypedApi(client, {
+      guarded: { url: '/api/guard', lock: true },
+    });
+
+    const r1 = await api.guarded();
+    const r2 = await api.guarded();
+
+    expect(r1).toEqual({ ok: true });
+    expect(r2).toEqual({ ok: true }); // not null — first call finished
+  });
+
   it('endpoint without _params does not require params', async () => {
     const responses = new Map<string, AdapterResponse>();
     responses.set('GET:/api/users', { status: 200, data: ['ok'], headers: {} });
