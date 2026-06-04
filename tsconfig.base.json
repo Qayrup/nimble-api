@@ -10,7 +10,6 @@
     "strict": true,
     "isolatedModules": true,
     "incremental": true,
-    "tsBuildInfoFile": ".tsbuildinfo",
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
