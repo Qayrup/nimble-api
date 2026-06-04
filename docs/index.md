@@ -1,0 +1,51 @@
+---
+layout: home
+
+hero:
+  name: Nimble-API
+  text: 轻量级 API 服务框架
+  tagline: 事件驱动 · 可扩展适配器 · 完整的类型安全
+  image:
+    src: /logo.svg
+    alt: Nimble-API
+  actions:
+    - theme: brand
+      text: 快速开始
+      link: /guide/getting-started
+    - theme: alt
+      text: 项目介绍
+      link: /guide/
+
+features:
+  - icon: 🪶
+    title: 轻量级
+    details: 零外部依赖（eventhub），api-service 仅依赖 eventhub。Tree-shaking 友好，按需加载。
+  - icon: 🔌
+    title: 可扩展适配器
+    details: 内置 fetch 和 uni-app 适配器，实现 RequestAdapter 接口即可接入任意 HTTP 层。
+  - icon: 🛡️
+    title: 类型安全
+    details: 完整的 TypeScript 类型推导，EventMap 泛型约束事件，TypedApi 生成端点包装器。
+  - icon: 🔄
+    title: 智能重试
+    details: 可配置的重试策略，支持指数退避和固定延迟，beforeRetry 钩子可中止重试。
+  - icon: ⚡
+    title: 缓存系统
+    details: LRU 内存缓存，TTL 过期，SWR (stale-while-revalidate) 模式，标签批量失效。
+  - icon: 🪝
+    title: 钩子管线
+    details: beforeRequest → afterResponse → beforeRetry → beforeError，完整的请求生命周期拦截。
+  - icon: 📡
+    title: 事件驱动
+    details: 基于 EventHub 的事件系统，支持 onSuccess/onError 全局事件订阅和分发。
+  - icon: 🧩
+    title: Monorepo 架构
+    details: npm workspaces 管理，eventhub 和 api-service 独立发布，按需组合使用。
+---
+
+<style>
+:root {
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: -webkit-linear-gradient(120deg, #bd34fe, #41d1ff);
+}
+</style>
