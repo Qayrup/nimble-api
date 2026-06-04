@@ -388,26 +388,26 @@ export class ApiClient {
       });
     }
 
-    // 7. afterResponse hooks
+    // 8. afterResponse hooks
     state = await runAfterResponse(this.#hooks, state);
 
-    // 8. Cache store
+    // 9. Cache store
     if (cacheKey) {
       const cacheOpts = state.options.cache;
       this.#cache.set(cacheKey, state.response!.data, cacheOpts.ttl, cacheTags, cacheOpts.gcTime);
     }
 
-    // 9. Entity cache tags from response
+    // 10. Entity cache tags from response
     if (state.options.entities.length > 0 && state.response?.data) {
       this.#extractEntities(state.options.entities, state.response.data);
     }
 
-    // 10. Invalidate tags
+    // 11. Invalidate tags
     if (state.options.invalidates.length > 0) {
       this.#cache.invalidateByTags(state.options.invalidates);
     }
 
-    // 11. Dispatch events
+    // 12. Dispatch events
     this.#dispatchEvents(state);
 
     return state.response!.data as T;
