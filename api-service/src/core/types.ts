@@ -36,10 +36,11 @@ export interface CacheOptions {
   ttl?: number;
   mode?: 'ttl' | 'swr';
   maxSize?: number;
+  gcTime?: number;
 }
 
 export interface CacheControl {
-  invalidate(opts: { tags?: string[]; key?: string }): void;
+  invalidate(opts: { tags?: string[]; key?: string; keyPrefix?: string }): void;
   clear(): void;
 }
 
@@ -71,12 +72,14 @@ export interface RequestState {
 
 export const stop: unique symbol = Symbol('nimble-api:stop');
 
+export type InitHook = (opts: RequestOptions) => RequestOptions | Promise<RequestOptions>;
 export type BeforeRequestHook = (state: RequestState) => RequestState | Promise<RequestState>;
 export type AfterResponseHook = (state: RequestState) => RequestState | Promise<RequestState>;
 export type BeforeRetryHook = (state: RequestState) => RequestState | Promise<RequestState> | typeof stop;
 export type BeforeErrorHook = (state: RequestState) => RequestState | Promise<RequestState>;
 
 export interface Hooks {
+  init?: InitHook[];
   beforeRequest?: BeforeRequestHook[];
   afterResponse?: AfterResponseHook[];
   beforeRetry?: BeforeRetryHook[];
@@ -87,7 +90,7 @@ export interface Hooks {
 
 export interface RequestOptions {
   params?: Record<string, string | number>;
-  searchParams?: Record<string, string | number>;
+  searchParams?: Record<string, string | number | (string | number)[] | null | undefined>;
   json?: unknown;
   form?: FormData;
   text?: string;
@@ -102,12 +105,19 @@ export interface RequestOptions {
     mode?: 'ttl' | 'swr';
     tags?: string[];
     skip?: boolean;
+    gcTime?: number;
   };
   schema?: SchemaValidator;
   onSuccess?: string | string[];
   onError?: { default: string; [code: number]: string };
   entities?: EntityDef[];
   invalidates?: string[];
+  validateStatus?: (status: number) => boolean;
+  onUploadProgress?: (progress: { loaded: number; total: number }) => void;
+  onDownloadProgress?: (progress: { loaded: number; total: number }) => void;
+  totalTimeout?: number;
+  paramsSerializer?: (params: Record<string, unknown>) => string;
+  maxContentLength?: number;
 }
 
 // === Normalized Options (internal, all defaults filled) ===
@@ -122,12 +132,19 @@ export interface NormalizedRequestOptions {
     mode: 'ttl' | 'swr';
     tags: string[];
     skip: boolean;
+    gcTime?: number;
   };
   onSuccess: string[];
   onError: { default: string; [code: number]: string } | null;
   entities: EntityDef[];
   invalidates: string[];
   schema: SchemaValidator | null;
+  validateStatus: (status: number) => boolean;
+  onUploadProgress: ((progress: { loaded: number; total: number }) => void) | null;
+  onDownloadProgress: ((progress: { loaded: number; total: number }) => void) | null;
+  totalTimeout: number | null;
+  paramsSerializer: ((params: Record<string, unknown>) => string) | null;
+  maxContentLength: number | null;
 }
 
 // === Client Options ===
@@ -141,6 +158,12 @@ export interface ApiOptions {
   adapter?: RequestAdapter;
   hooks?: Hooks;
   eventHub?: EventHubLike;
+  validateStatus?: (status: number) => boolean;
+  totalTimeout?: number;
+  paramsSerializer?: (params: Record<string, unknown>) => string;
+  maxContentLength?: number;
+  xsrfCookieName?: string;
+  xsrfHeaderName?: string;
 }
 
 // === Adapter ===
@@ -157,6 +180,8 @@ export interface AdapterRequestConfig {
   signal?: AbortSignal;
   timeout?: number;
   responseType?: 'json' | 'text' | 'blob' | 'arrayBuffer';
+  onUploadProgress?: (progress: { loaded: number; total: number }) => void;
+  onDownloadProgress?: (progress: { loaded: number; total: number }) => void;
 }
 
 export interface AdapterResponse {
@@ -174,13 +199,25 @@ export interface EventHubLike {
 
 // === Error ===
 
+export type ApiErrorCode =
+  | 'ERR_NETWORK'
+  | 'ERR_BAD_REQUEST'
+  | 'ERR_BAD_RESPONSE'
+  | 'ERR_TIMEOUT'
+  | 'ERR_ABORTED'
+  | 'ERR_VALIDATION'
+  | 'ERR_MAX_SIZE'
+  | 'ERR_UNKNOWN';
+
 export class ApiError extends Error {
+  code: ApiErrorCode;
   status: number;
   data: unknown;
   request: { url: string; method: string };
   response?: { status: number; headers: Record<string, string> };
 
   constructor(message: string, opts: {
+    code?: ApiErrorCode;
     status: number;
     data: unknown;
     request: { url: string; method: string };
@@ -188,6 +225,7 @@ export class ApiError extends Error {
   }) {
     super(message);
     this.name = 'ApiError';
+    this.code = opts.code ?? 'ERR_UNKNOWN';
     this.status = opts.status;
     this.data = opts.data;
     this.request = opts.request;

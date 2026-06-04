@@ -184,7 +184,7 @@ describe('CacheControl', () => {
     const adapter2: RequestAdapter = {
       async request() { callCount(); return { status: 200, data: {}, headers: {} }; },
     };
-    const client2 = createApiClient({ adapter: adapter2 });
+    createApiClient({ adapter: adapter2 });
     // Can't easily verify without sharing cache... skip this specific assertion
   });
 
@@ -450,5 +450,451 @@ describe('createTypedApi', () => {
 
     const newUser = await api.createUser({ body: { name: 'Bob' } });
     expect(newUser).toEqual({ name: 'Bob' });
+  });
+});
+
+// ============================================================
+// searchParams array support
+// ============================================================
+
+describe('searchParams array support', () => {
+  it('produces repeated keys for array values', async () => {
+    const capturedUrls: string[] = [];
+    const adapter: RequestAdapter = {
+      async request(config) {
+        capturedUrls.push(config.url);
+        return { status: 200, data: { ok: true }, headers: {} };
+      },
+    };
+    const client = makeClient(adapter);
+
+    await client.get('/api/items', {
+      searchParams: { ids: [1, 2, 3], category: 'books' },
+    });
+
+    const url = capturedUrls[0];
+    expect(url).toContain('ids=1');
+    expect(url).toContain('ids=2');
+    expect(url).toContain('ids=3');
+    expect(url).toContain('category=books');
+  });
+
+  it('skips null and undefined values', async () => {
+    const capturedUrls: string[] = [];
+    const adapter: RequestAdapter = {
+      async request(config) {
+        capturedUrls.push(config.url);
+        return { status: 200, data: { ok: true }, headers: {} };
+      },
+    };
+    const client = makeClient(adapter);
+
+    await client.get('/api/items', {
+      searchParams: { active: true, deleted: null, hidden: undefined },
+    });
+
+    const url = capturedUrls[0];
+    expect(url).toContain('active=true');
+    expect(url).not.toContain('deleted');
+    expect(url).not.toContain('hidden');
+  });
+});
+
+// ============================================================
+// validateStatus
+// ============================================================
+
+describe('validateStatus', () => {
+  it('accepts custom validateStatus', async () => {
+    const adapter: RequestAdapter = {
+      async request() {
+        return { status: 304, data: null, headers: {} };
+      },
+    };
+    const client = makeClient(adapter, {
+      validateStatus: (status) => status === 304 || (status >= 200 && status < 300),
+    });
+
+    const result = await client.get('/api/cached');
+    expect(result).toBeNull();
+  });
+
+  it('rejects when custom validateStatus returns false', async () => {
+    const adapter: RequestAdapter = {
+      async request() {
+        return { status: 304, data: null, headers: {} };
+      },
+    };
+    const client = makeClient(adapter);
+
+    await expect(client.get('/api/cached')).rejects.toThrow(ApiError);
+  });
+});
+
+// ============================================================
+// head() / options()
+// ============================================================
+
+describe('head() / options()', () => {
+  it('client.head() sends a HEAD request', async () => {
+    let capturedMethod = '';
+    const adapter: RequestAdapter = {
+      async request(config) {
+        capturedMethod = config.method;
+        return { status: 200, data: null, headers: {} };
+      },
+    };
+    const client = makeClient(adapter);
+
+    await client.head('/api/health');
+    expect(capturedMethod).toBe('HEAD');
+  });
+
+  it('client.options() sends an OPTIONS request', async () => {
+    let capturedMethod = '';
+    const adapter: RequestAdapter = {
+      async request(config) {
+        capturedMethod = config.method;
+        return { status: 204, data: null, headers: { allow: 'GET,POST' } };
+      },
+    };
+    const client = makeClient(adapter);
+
+    await client.options('/api/cors');
+    expect(capturedMethod).toBe('OPTIONS');
+  });
+});
+
+// ============================================================
+// Cache keyPrefix invalidation
+// ============================================================
+
+describe('Cache keyPrefix invalidation', () => {
+  it('invalidateByKeyPrefix removes matching cache entries', () => {
+    const cache = new MemoryCache();
+    cache.set('GET:/api/user/1', { name: 'A' }, 60000);
+    cache.set('GET:/api/user/2', { name: 'B' }, 60000);
+    cache.set('GET:/api/order/1', { id: 1 }, 60000);
+
+    cache.invalidateByKeyPrefix('GET:/api/user');
+
+    expect(cache.get('GET:/api/user/1')).toBeUndefined();
+    expect(cache.get('GET:/api/user/2')).toBeUndefined();
+    expect(cache.get('GET:/api/order/1')).toBeDefined();
+  });
+
+  it('cache.invalidate with keyPrefix clears matching entries via client', async () => {
+    let callCount = 0;
+    const adapter: RequestAdapter = {
+      async request(config) {
+        callCount++;
+        return { status: 200, data: { url: config.url }, headers: {} };
+      },
+    };
+    const client = makeClient(adapter, { cache: { ttl: 60000 } });
+
+    await client.get('/api/user/1');
+    await client.get('/api/user/1'); // cached
+    expect(callCount).toBe(1);
+
+    client.cache.invalidate({ keyPrefix: '/api/user' });
+
+    await client.get('/api/user/1'); // re-fetched
+    expect(callCount).toBe(2);
+  });
+});
+
+// ============================================================
+// createBearerAuth
+// ============================================================
+
+describe('createBearerAuth', () => {
+  it('adds Authorization header', async () => {
+    const { createBearerAuth } = await import('../auth');
+
+    let capturedHeaders: Record<string, string> = {};
+    const adapter: RequestAdapter = {
+      async request(config) {
+        capturedHeaders = config.headers;
+        return { status: 200, data: { authed: true }, headers: {} };
+      },
+    };
+
+    const client = makeClient(adapter, {
+      hooks: { beforeRequest: [createBearerAuth('my-token')] },
+    });
+
+    await client.get('/api/protected');
+    expect(capturedHeaders['Authorization']).toBe('Bearer my-token');
+  });
+
+  it('supports dynamic token function', async () => {
+    const { createBearerAuth } = await import('../auth');
+
+    let token = 'first-token';
+    let capturedHeaders: Record<string, string> = {};
+    const adapter: RequestAdapter = {
+      async request(config) {
+        capturedHeaders = config.headers;
+        return { status: 200, data: {}, headers: {} };
+      },
+    };
+
+    const client = makeClient(adapter, {
+      hooks: { beforeRequest: [createBearerAuth(() => token)] },
+    });
+
+    await client.get('/api/test');
+    expect(capturedHeaders['Authorization']).toBe('Bearer first-token');
+
+    token = 'refreshed-token';
+    await client.get('/api/test');
+    expect(capturedHeaders['Authorization']).toBe('Bearer refreshed-token');
+  });
+});
+
+// ============================================================
+// ErrorCode classification
+// ============================================================
+
+describe('ErrorCode classification', () => {
+  it('sets ERR_BAD_REQUEST for 4xx', async () => {
+    const adapter: RequestAdapter = {
+      async request() {
+        return { status: 404, data: { msg: 'not found' }, headers: {} };
+      },
+    };
+    const client = makeClient(adapter, { retry: false });
+
+    try {
+      await client.get('/api/missing');
+      expect.fail('should throw');
+    } catch (err) {
+      const apiErr = err as ApiError;
+      expect(apiErr.code).toBe('ERR_BAD_REQUEST');
+    }
+  });
+
+  it('sets ERR_BAD_RESPONSE for 5xx', async () => {
+    const adapter: RequestAdapter = {
+      async request() {
+        return { status: 500, data: {}, headers: {} };
+      },
+    };
+    const client = makeClient(adapter, { retry: false });
+
+    try {
+      await client.get('/api/boom');
+      expect.fail('should throw');
+    } catch (err) {
+      const apiErr = err as ApiError;
+      expect(apiErr.code).toBe('ERR_BAD_RESPONSE');
+    }
+  });
+});
+
+// ============================================================
+// totalTimeout
+// ============================================================
+
+describe('totalTimeout', () => {
+  it('throws after totalTimeout exceeded across retries', async () => {
+    const adapter: RequestAdapter = {
+      async request() {
+        return { status: 500, data: {}, headers: {} };
+      },
+    };
+    const client = makeClient(adapter, {
+      retry: { limit: 5, backoff: 'fixed', baseDelay: 100 },
+      totalTimeout: 50,
+    });
+
+    try {
+      await client.get('/api/timeout');
+      expect.fail('should throw');
+    } catch (err) {
+      const apiErr = err as ApiError;
+      expect(apiErr.code).toBe('ERR_TIMEOUT');
+    }
+  });
+});
+
+// ============================================================
+// hooks.init
+// ============================================================
+
+describe('hooks.init', () => {
+  it('mutates request options before normalization', async () => {
+    let capturedHeaders: Record<string, string> = {};
+    const adapter: RequestAdapter = {
+      async request(config) {
+        capturedHeaders = config.headers;
+        return { status: 200, data: { ok: true }, headers: {} };
+      },
+    };
+
+    const client = makeClient(adapter, {
+      hooks: {
+        init: [(opts) => ({ ...opts, headers: { ...opts.headers, 'X-Extra': '1' } })],
+      },
+    });
+
+    await client.get('/api/data');
+    expect(capturedHeaders['X-Extra']).toBe('1');
+  });
+
+  it('init hooks can inject searchParams', async () => {
+    let capturedUrl = '';
+    const adapter: RequestAdapter = {
+      async request(config) {
+        capturedUrl = config.url;
+        return { status: 200, data: {}, headers: {} };
+      },
+    };
+
+    const client = makeClient(adapter, {
+      hooks: {
+        init: [(opts) => ({ ...opts, searchParams: { ...opts.searchParams, injected: '1' } })],
+      },
+    });
+
+    await client.get('/api/data');
+    expect(capturedUrl).toContain('injected=1');
+  });
+});
+
+// ============================================================
+// beforeRequest short-circuit
+// ============================================================
+
+describe('beforeRequest short-circuit', () => {
+  it('beforeRequest hook can short-circuit by setting response', async () => {
+    let adapterCalled = false;
+    const adapter: RequestAdapter = {
+      async request() {
+        adapterCalled = true;
+        return { status: 200, data: {}, headers: {} };
+      },
+    };
+
+    const client = makeClient(adapter, {
+      hooks: {
+        beforeRequest: [(state) => ({
+          ...state,
+          response: { status: 200, data: { mocked: true }, headers: {} },
+        })],
+      },
+    });
+
+    const result = await client.get('/api/mock');
+    expect(result).toEqual({ mocked: true });
+    expect(adapterCalled).toBe(false);
+  });
+});
+
+// ============================================================
+// paramsSerializer
+// ============================================================
+
+describe('paramsSerializer', () => {
+  it('uses custom serializer for query params', async () => {
+    let capturedUrl = '';
+    const adapter: RequestAdapter = {
+      async request(config) {
+        capturedUrl = config.url;
+        return { status: 200, data: {}, headers: {} };
+      },
+    };
+
+    const client = makeClient(adapter, {
+      paramsSerializer: (params) => {
+        const parts: string[] = [];
+        for (const [k, v] of Object.entries(params)) {
+          if (Array.isArray(v)) {
+            for (const item of v) {
+              parts.push(`${encodeURIComponent(k)}[]=${encodeURIComponent(String(item))}`);
+            }
+          } else {
+            parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+          }
+        }
+        return parts.join('&');
+      },
+    });
+
+    await client.get('/api/items', {
+      searchParams: { ids: [1, 2, 3], page: '1' },
+    });
+
+    expect(capturedUrl).toContain('ids[]=1');
+    expect(capturedUrl).toContain('ids[]=2');
+    expect(capturedUrl).toContain('ids[]=3');
+    expect(capturedUrl).toContain('page=1');
+  });
+});
+
+// ============================================================
+// maxContentLength
+// ============================================================
+
+describe('maxContentLength', () => {
+  it('throws when Content-Length exceeds max', async () => {
+    const adapter: RequestAdapter = {
+      async request() {
+        return {
+          status: 200,
+          data: {},
+          headers: { 'content-length': '99999999' },
+        };
+      },
+    };
+    const client = makeClient(adapter, { maxContentLength: 1024 });
+
+    try {
+      await client.get('/api/large');
+      expect.fail('should throw');
+    } catch (err) {
+      const apiErr = err as ApiError;
+      expect(apiErr.code).toBe('ERR_MAX_SIZE');
+    }
+  });
+});
+
+// ============================================================
+// gcTime / staleTime separation
+// ============================================================
+
+describe('gcTime / staleTime separation', () => {
+  it('gcTime defaults to Infinity (no auto GC)', () => {
+    const cache = new MemoryCache();
+    cache.set('key', 'value', 10);
+    expect(cache.has('key')).toBe(true);
+  });
+
+  it('gcTime removes entry after inactivity', async () => {
+    const cache = new MemoryCache();
+    cache.set('key', 'value', 60000, [], 10);
+    expect(cache.has('key')).toBe(true);
+    await new Promise(r => setTimeout(r, 15));
+    expect(cache.has('key')).toBe(false);
+  });
+
+  it('exportState and importState roundtrip', () => {
+    const cache = new MemoryCache(100);
+    cache.set('a', 1, 60000, ['tag1']);
+    cache.set('b', 2, 60000, ['tag2']);
+
+    const json = cache.exportState();
+    const cache2 = new MemoryCache();
+    cache2.importState(json);
+
+    expect(cache2.get('a')).toBe(1);
+    expect(cache2.get('b')).toBe(2);
+    expect(cache2.maxSize).toBe(100);
+
+    // Verify tag index was rebuilt
+    expect(cache2.has('a')).toBe(true);
+    cache2.invalidateByTags(['tag1']);
+    expect(cache2.has('a')).toBe(false);
   });
 });

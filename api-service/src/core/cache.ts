@@ -1,7 +1,9 @@
 interface CacheEntry {
   data: unknown;
   timestamp: number;
-  ttl: number;
+  staleTime: number;
+  gcTime: number;
+  lastAccess: number;
   tags: string[];
 }
 
@@ -17,12 +19,22 @@ export class MemoryCache {
   get(key: string): unknown | undefined {
     const entry = this.#store.get(key);
     if (!entry) return undefined;
-    if (Date.now() - entry.timestamp > entry.ttl) {
+
+    // Lazy gcTime cleanup
+    if (Date.now() - entry.lastAccess > entry.gcTime) {
       this.#removeEntry(key, entry);
       return undefined;
     }
-    // Bump to end (most recently used) — Map maintains insertion order
+
+    // Check staleTime
+    if (Date.now() - entry.timestamp > entry.staleTime) {
+      this.#removeEntry(key, entry);
+      return undefined;
+    }
+
+    // Bump LRU + lastAccess
     this.#store.delete(key);
+    entry.lastAccess = Date.now();
     this.#store.set(key, entry);
     return entry.data;
   }
@@ -30,14 +42,25 @@ export class MemoryCache {
   getStale(key: string): { data: unknown; stale: boolean } | undefined {
     const entry = this.#store.get(key);
     if (!entry) return undefined;
-    const expired = Date.now() - entry.timestamp > entry.ttl;
-    // Bump to end for LRU
+
+    // Lazy gcTime cleanup
+    if (Date.now() - entry.lastAccess > entry.gcTime) {
+      this.#removeEntry(key, entry);
+      return undefined;
+    }
+
+    const stale = Date.now() - entry.timestamp > entry.staleTime;
+
+    // Bump LRU + lastAccess
     this.#store.delete(key);
+    entry.lastAccess = Date.now();
     this.#store.set(key, entry);
-    return { data: entry.data, stale: expired };
+    return { data: entry.data, stale };
   }
 
-  set(key: string, value: unknown, ttl: number, tags: string[] = []): void {
+  set(key: string, value: unknown, staleTime: number, tags: string[] = [], gcTime?: number): void {
+    const effectiveGcTime = gcTime ?? Infinity;
+
     // Evict if at capacity (remove LRU = first key in Map)
     if (this.#store.size >= this.#maxSize && !this.#store.has(key)) {
       const lruKey = this.#store.keys().next().value;
@@ -51,7 +74,15 @@ export class MemoryCache {
     const old = this.#store.get(key);
     if (old) this.#removeEntry(key, old, true);
 
-    const entry: CacheEntry = { data: value, timestamp: Date.now(), ttl, tags };
+    const now = Date.now();
+    const entry: CacheEntry = {
+      data: value,
+      timestamp: now,
+      staleTime,
+      gcTime: effectiveGcTime,
+      lastAccess: now,
+      tags,
+    };
     this.#store.set(key, entry);
 
     for (const tag of tags) {
@@ -72,8 +103,13 @@ export class MemoryCache {
   has(key: string): boolean {
     const entry = this.#store.get(key);
     if (!entry) return false;
-    if (Date.now() - entry.timestamp > entry.ttl) {
+
+    if (Date.now() - entry.lastAccess > entry.gcTime) {
       this.#removeEntry(key, entry);
+      return false;
+    }
+    // staleTime expired means data is no longer valid for TTL use
+    if (Date.now() - entry.timestamp > entry.staleTime) {
       return false;
     }
     return true;
@@ -98,6 +134,70 @@ export class MemoryCache {
 
   invalidateByKey(key: string): void {
     this.delete(key);
+  }
+
+  invalidateByKeyPrefix(prefix: string): void {
+    for (const key of this.#store.keys()) {
+      if (key.startsWith(prefix)) {
+        const entry = this.#store.get(key);
+        if (entry) this.#removeEntry(key, entry);
+      }
+    }
+  }
+
+  exportState(): string {
+    const entries: Array<Record<string, unknown>> = [];
+    for (const [key, entry] of this.#store) {
+      entries.push({
+        key,
+        data: entry.data,
+        timestamp: entry.timestamp,
+        staleTime: entry.staleTime,
+        gcTime: entry.gcTime,
+        lastAccess: entry.lastAccess,
+        tags: entry.tags,
+      });
+    }
+    return JSON.stringify({ entries, maxSize: this.#maxSize });
+  }
+
+  importState(json: string): void {
+    this.clear();
+    const state = JSON.parse(json) as {
+      entries: Array<{
+        key: string;
+        data: unknown;
+        timestamp: number;
+        staleTime: number;
+        gcTime: number;
+        lastAccess: number;
+        tags: string[];
+      }>;
+      maxSize: number;
+    };
+
+    this.#maxSize = state.maxSize;
+
+    for (const item of state.entries) {
+      const entry: CacheEntry = {
+        data: item.data,
+        timestamp: item.timestamp,
+        staleTime: item.staleTime,
+        gcTime: item.gcTime,
+        lastAccess: item.lastAccess,
+        tags: item.tags,
+      };
+      this.#store.set(item.key, entry);
+
+      for (const tag of item.tags) {
+        let set = this.#tagIndex.get(tag);
+        if (!set) {
+          set = new Set();
+          this.#tagIndex.set(tag, set);
+        }
+        set.add(item.key);
+      }
+    }
   }
 
   get size(): number {

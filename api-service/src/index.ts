@@ -5,10 +5,12 @@ export { ApiClient } from './client';
 export { MemoryCache } from './core/cache';
 export { createFetchAdapter } from './adapters/fetch';
 export { createUniAppAdapter } from './adapters/uniapp';
+export { createXhrAdapter } from './adapters/xhr';
 export { createTypedApi } from './typed';
 export { ApiError, stop } from './core/types';
 export { calcBackoff, shouldRetry, DEFAULT_RETRY } from './retry';
-export { runBeforeRequest, runAfterResponse, runBeforeRetry, runBeforeError } from './hooks';
+export { runBeforeRequest, runAfterResponse, runBeforeRetry, runBeforeError, runInitHooks } from './hooks';
+export { createBearerAuth } from './auth';
 
 export type {
   ApiOptions,
@@ -19,6 +21,7 @@ export type {
   AdapterRequestConfig,
   AdapterResponse,
   Hooks,
+  InitHook,
   BeforeRequestHook,
   AfterResponseHook,
   BeforeRetryHook,
@@ -32,6 +35,7 @@ export type {
   ApiDefinition,
   TypedApi,
   EventHubLike,
+  ApiErrorCode,
 } from './core/types';
 
 export function createApiClient(options?: ApiOptions): ApiClient {

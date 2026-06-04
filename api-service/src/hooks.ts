@@ -1,4 +1,16 @@
-import { stop, type Hooks, type RequestState } from './core/types';
+import { stop, type Hooks, type RequestState, type RequestOptions } from './core/types';
+
+export async function runInitHooks(
+  hooks: Hooks | undefined,
+  opts: RequestOptions,
+): Promise<RequestOptions> {
+  if (!hooks?.init?.length) return opts;
+  let current = opts;
+  for (const hook of hooks.init) {
+    current = await hook(current);
+  }
+  return current;
+}
 
 export async function runBeforeRequest(
   hooks: Hooks | undefined,

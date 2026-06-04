@@ -2,9 +2,10 @@ import { MemoryCache } from './core/cache';
 import { buildUrl } from './utils/url-builder';
 import { generateCacheKey } from './utils/cache-key';
 import { createFetchAdapter } from './adapters/fetch';
-import { runBeforeRequest, runAfterResponse, runBeforeRetry, runBeforeError } from './hooks';
+import { runBeforeRequest, runAfterResponse, runBeforeRetry, runBeforeError, runInitHooks } from './hooks';
 import { calcBackoff, shouldRetry, DEFAULT_RETRY } from './retry';
 import { stop } from './core/types';
+import { readCookie } from './utils/cookie';
 import type {
   ApiOptions,
   RequestOptions,
@@ -28,6 +29,12 @@ const DEFAULT_OPTIONS: NormalizedRequestOptions = {
   entities: [],
   invalidates: [],
   schema: null,
+  validateStatus: (status: number) => status >= 200 && status < 300,
+  onUploadProgress: null,
+  onDownloadProgress: null,
+  totalTimeout: null,
+  paramsSerializer: null,
+  maxContentLength: null,
 };
 
 export class ApiClient {
@@ -71,6 +78,14 @@ export class ApiClient {
     return this.#request<T>(url, { ...opts, method: 'DELETE' });
   }
 
+  head<T = unknown>(url: string, opts?: RequestOptions): Promise<T> {
+    return this.#request<T>(url, { ...opts, method: 'HEAD' });
+  }
+
+  options<T = unknown>(url: string, opts?: RequestOptions): Promise<T> {
+    return this.#request<T>(url, { ...opts, method: 'OPTIONS' });
+  }
+
   // === Extend ===
 
   extend(options: ApiOptions): ApiClient {
@@ -79,6 +94,7 @@ export class ApiClient {
       ...options,
       headers: { ...this.#options.headers, ...options.headers },
       hooks: {
+        init: [...(this.#options.hooks?.init ?? []), ...(options.hooks?.init ?? [])],
         beforeRequest: [...(this.#options.hooks?.beforeRequest ?? []), ...(options.hooks?.beforeRequest ?? [])],
         afterResponse: [...(this.#options.hooks?.afterResponse ?? []), ...(options.hooks?.afterResponse ?? [])],
         beforeRetry: [...(this.#options.hooks?.beforeRetry ?? []), ...(options.hooks?.beforeRetry ?? [])],
@@ -96,9 +112,10 @@ export class ApiClient {
   get cache(): CacheControl {
     this.#checkDestroyed();
     return {
-      invalidate: (opts: { tags?: string[]; key?: string }) => {
+      invalidate: (opts: { tags?: string[]; key?: string; keyPrefix?: string }) => {
         if (opts.tags) this.#cache.invalidateByTags(opts.tags);
         if (opts.key) this.#cache.invalidateByKey(opts.key);
+        if (opts.keyPrefix) this.#cache.invalidateByKeyPrefix(opts.keyPrefix);
       },
       clear: () => this.#cache.clear(),
     };
@@ -121,6 +138,9 @@ export class ApiClient {
   async #request<T = unknown>(rawUrl: string, opts: RequestOptions): Promise<T> {
     this.#checkDestroyed();
 
+    // Run init hooks (mutate options before normalization)
+    opts = await runInitHooks(this.#hooks, opts);
+
     const normalized = this.#normalizeOptions(opts);
     const method = (opts.method ?? 'GET').toUpperCase();
     const url = this.#buildFullUrl(rawUrl, opts);
@@ -133,6 +153,14 @@ export class ApiClient {
     };
     if (body != null && method !== 'GET' && method !== 'DELETE') {
       headers['Content-Type'] = 'application/json';
+    }
+
+    // CSRF
+    const xsrfCookie = this.#options.xsrfCookieName ?? 'XSRF-TOKEN';
+    const xsrfHeader = this.#options.xsrfHeaderName ?? 'X-XSRF-TOKEN';
+    const xsrfToken = readCookie(xsrfCookie);
+    if (xsrfToken && !headers[xsrfHeader.toLowerCase()]) {
+      headers[xsrfHeader] = xsrfToken;
     }
 
     const cacheKey = normalized.cache.ttl > 0
@@ -158,6 +186,7 @@ export class ApiClient {
 
   async #executeWithRetry<T>(state: RequestState, cacheKey: string): Promise<T> {
     const retry = state.options.retry;
+    const startTime = Date.now();
 
     const attempt = async (): Promise<T> => {
       try {
@@ -166,6 +195,7 @@ export class ApiClient {
         const error = err instanceof ApiError ? err : new ApiError(
           err instanceof Error ? err.message : String(err),
           {
+            code: 'ERR_NETWORK',
             status: 0,
             data: null,
             request: state.request,
@@ -177,6 +207,20 @@ export class ApiClient {
 
         // Run beforeError hooks
         const errorState = await runBeforeError(this.#hooks, state);
+
+        // Check totalTimeout
+        const totalTimeout = state.options.totalTimeout;
+        if (totalTimeout != null && Date.now() - startTime > totalTimeout) {
+          errorState.error = new ApiError('Total timeout exceeded', {
+            code: 'ERR_TIMEOUT',
+            status: error.status,
+            data: error.data,
+            request: state.request,
+            response: error.response,
+          });
+          this.#dispatchEvents(errorState);
+          throw errorState.error;
+        }
 
         // Check retry
         if (
@@ -190,6 +234,7 @@ export class ApiClient {
 
           const delay = calcBackoff(retry, state.retryCount);
           await new Promise(r => setTimeout(r, delay));
+          state.response = undefined;
           return attempt();
         }
 
@@ -205,6 +250,14 @@ export class ApiClient {
     // 1. beforeRequest hooks
     state = await runBeforeRequest(this.#hooks, state);
 
+    // If beforeRequest hook already set a response, short-circuit
+    const shortCircuitResponse = state.response;
+    if (shortCircuitResponse) {
+      state = await runAfterResponse(this.#hooks, state);
+      this.#dispatchEvents(state);
+      return shortCircuitResponse.data as T;
+    }
+
     const url = state.request.url;
     const method = state.request.method;
     const bodyHash = state.request.body ? JSON.stringify(state.request.body) : '';
@@ -217,7 +270,6 @@ export class ApiClient {
     }
 
     // 3. Cache check
-    const cacheTTL = state.options.cache.ttl;
     const cacheMode = state.options.cache.mode;
     const cacheTags = state.options.cache.tags;
 
@@ -234,7 +286,7 @@ export class ApiClient {
           this.#doFetch(state, cacheKey, cacheTags).catch((err) => {
             state.error = err instanceof ApiError ? err : new ApiError(
               err instanceof Error ? err.message : String(err),
-              { status: 0, data: null, request: state.request },
+              { code: 'ERR_NETWORK', status: 0, data: null, request: state.request },
             );
             this.#dispatchEvents(state);
           });
@@ -278,6 +330,8 @@ export class ApiClient {
       signal: state.request.signal,
       timeout: state.options.timeout,
       responseType: state.options.responseType,
+      onUploadProgress: state.options.onUploadProgress ?? undefined,
+      onDownloadProgress: state.options.onDownloadProgress ?? undefined,
     });
 
     state.response = {
@@ -286,7 +340,24 @@ export class ApiClient {
       headers: response.headers,
     };
 
-    // 5. Schema validation
+    // 5. maxContentLength check
+    if (state.options.maxContentLength != null) {
+      const lenHeader = response.headers['content-length'];
+      if (lenHeader) {
+        const len = parseInt(lenHeader, 10);
+        if (len > state.options.maxContentLength) {
+          throw new ApiError(`Response too large: ${len} > ${state.options.maxContentLength}`, {
+            code: 'ERR_MAX_SIZE',
+            status: response.status,
+            data: null,
+            request: state.request,
+            response: { status: response.status, headers: response.headers },
+          });
+        }
+      }
+    }
+
+    // 6. Schema validation
     if (state.options.schema) {
       const schema = state.options.schema;
       if (typeof schema.parse === 'function') {
@@ -295,6 +366,7 @@ export class ApiClient {
         const result = schema.safeParse(state.response.data);
         if (!result.success) {
           throw new ApiError('Schema validation failed', {
+            code: 'ERR_VALIDATION',
             status: response.status,
             data: result.error,
             request: state.request,
@@ -305,9 +377,10 @@ export class ApiClient {
       }
     }
 
-    // 6. Error status check
-    if (response.status < 200 || response.status >= 300) {
+    // 7. Error status check
+    if (!state.options.validateStatus(response.status)) {
       throw new ApiError(`Request failed with status ${response.status}`, {
+        code: response.status >= 400 && response.status < 500 ? 'ERR_BAD_REQUEST' : 'ERR_BAD_RESPONSE',
         status: response.status,
         data: response.data,
         request: state.request,
@@ -320,7 +393,8 @@ export class ApiClient {
 
     // 8. Cache store
     if (cacheKey) {
-      this.#cache.set(cacheKey, state.response!.data, state.options.cache.ttl, cacheTags);
+      const cacheOpts = state.options.cache;
+      this.#cache.set(cacheKey, state.response!.data, cacheOpts.ttl, cacheTags, cacheOpts.gcTime);
     }
 
     // 9. Entity cache tags from response
@@ -357,6 +431,7 @@ export class ApiClient {
         mode: reqCache?.mode ?? clientCache?.mode ?? DEFAULT_OPTIONS.cache.mode,
         tags: reqCache?.tags ?? [],
         skip: reqCache?.skip ?? false,
+        gcTime: reqCache?.gcTime ?? clientCache?.gcTime,
       },
       onSuccess: opts.onSuccess
         ? (Array.isArray(opts.onSuccess) ? opts.onSuccess : [opts.onSuccess])
@@ -365,23 +440,42 @@ export class ApiClient {
       entities: opts.entities ?? [],
       invalidates: opts.invalidates ?? [],
       schema: opts.schema ?? null,
+      validateStatus: opts.validateStatus ?? this.#options.validateStatus ?? DEFAULT_OPTIONS.validateStatus,
+      onUploadProgress: opts.onUploadProgress ?? null,
+      onDownloadProgress: opts.onDownloadProgress ?? null,
+      totalTimeout: opts.totalTimeout ?? this.#options.totalTimeout ?? DEFAULT_OPTIONS.totalTimeout,
+      paramsSerializer: opts.paramsSerializer ?? this.#options.paramsSerializer ?? DEFAULT_OPTIONS.paramsSerializer,
+      maxContentLength: opts.maxContentLength ?? this.#options.maxContentLength ?? DEFAULT_OPTIONS.maxContentLength,
     };
   }
 
   #buildFullUrl(rawUrl: string, opts: RequestOptions): string {
     let url = rawUrl;
+    const baseUrl = this.#options.baseUrl ?? '';
     if (opts.params) {
       url = buildUrl(url, opts.params);
     }
     if (opts.searchParams) {
+      const serializer = opts.paramsSerializer ?? this.#options.paramsSerializer;
+      if (serializer) {
+        const qs = serializer(opts.searchParams as Record<string, unknown>);
+        if (qs) url = url + (url.includes('?') ? '&' : '?') + qs;
+        return baseUrl ? baseUrl + url : url;
+      }
       const sp = new URLSearchParams();
       for (const [k, v] of Object.entries(opts.searchParams)) {
-        sp.append(k, String(v));
+        if (v == null) continue;
+        if (Array.isArray(v)) {
+          for (const item of v) {
+            sp.append(k, String(item));
+          }
+        } else {
+          sp.append(k, String(v));
+        }
       }
       const qs = sp.toString();
       if (qs) url = url + (url.includes('?') ? '&' : '?') + qs;
     }
-    const baseUrl = this.#options.baseUrl ?? '';
     return baseUrl ? baseUrl + url : url;
   }
 
