@@ -248,9 +248,16 @@ export class NetworkError extends ApiError {
 
 // === Endpoint Spec (for typed API) ===
 
-export interface EndpointSpec {
+export interface EndpointSpec<
+  TParams extends Record<string, string | number> | undefined = undefined,
+  TResponse = unknown,
+> {
   url: string;
   method?: string;
+  /** Phantom field — only used for parameter type inference, never accessed at runtime */
+  _params?: TParams;
+  /** Phantom field — only used for response type inference, never accessed at runtime */
+  _response?: TResponse;
   cache?: RequestOptions['cache'];
   retry?: RequestOptions['retry'];
   schema?: SchemaValidator;
@@ -263,19 +270,3 @@ export interface EndpointSpec {
   responseType?: RequestOptions['responseType'];
 }
 
-export interface ApiDefinition {
-  [name: string]: {
-    params?: Record<string, string | number>;
-    body?: Record<string, unknown>;
-    response?: unknown;
-  };
-}
-
-export type TypedApi<T extends ApiDefinition> = {
-  [K in keyof T & string]: (
-    opts?: {
-      params?: T[K]['params'];
-      body?: T[K]['body'];
-    } & Omit<RequestOptions, 'json' | 'form' | 'text'>,
-  ) => Promise<T[K]['response']>;
-};

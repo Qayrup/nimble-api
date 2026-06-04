@@ -1,9 +1,19 @@
 import type { ApiClient } from './client';
-import type { ApiDefinition, EndpointSpec, TypedApi, RequestOptions } from './core/types';
+import type { EndpointSpec, RequestOptions } from './core/types';
 
-export function createTypedApi<T extends ApiDefinition>(
+type EndpointSpecs = Record<string, EndpointSpec<any, any>>;
+
+export type TypedApi<T extends EndpointSpecs> = {
+  [K in keyof T & string]: (
+    ...args: NonNullable<T[K]['_params']> extends Record<string, string | number>
+      ? [opts: { params: NonNullable<T[K]['_params']> } & Omit<RequestOptions, 'json' | 'form' | 'text'>]
+      : [opts?: Omit<RequestOptions, 'json' | 'form' | 'text'>]
+  ) => Promise<NonNullable<T[K]['_response']>>
+};
+
+export function createTypedApi<T extends EndpointSpecs>(
   client: ApiClient,
-  endpoints: { [K in keyof T]: EndpointSpec },
+  endpoints: T,
 ): TypedApi<T> {
   const api = {} as TypedApi<T>;
 
@@ -30,12 +40,10 @@ export function createTypedApi<T extends ApiDefinition>(
         responseType: spec.responseType ?? (opts?.responseType as RequestOptions['responseType']),
       };
 
-      // Remove json/form/text from opts and use body if provided
       if ((opts as Record<string, unknown>)?.body !== undefined) {
         requestOpts.json = (opts as Record<string, unknown>).body;
       }
 
-      // Route to correct HTTP method
       switch (method) {
         case 'GET': return client.get(url, requestOpts);
         case 'POST': return client.post(url, requestOpts);

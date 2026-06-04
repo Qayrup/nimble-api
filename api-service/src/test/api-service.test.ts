@@ -446,7 +446,7 @@ describe('Lifecycle', () => {
 // ============================================================
 
 describe('createTypedApi', () => {
-  it('creates typed API methods', async () => {
+  it('creates typed API methods with type inference from spec', async () => {
     const responses = new Map<string, AdapterResponse>();
     responses.set('GET:/api/user/123', { status: 200, data: { name: 'Alice' }, headers: {} });
     responses.set('POST:/api/user', { status: 201, data: { name: 'Bob' }, headers: {} });
@@ -455,8 +455,16 @@ describe('createTypedApi', () => {
 
     const { createTypedApi } = await import('../typed');
     const api = createTypedApi(client, {
-      getUser: { url: '/api/user/{userId}' },
-      createUser: { url: '/api/user', method: 'POST' },
+      getUser: {
+        url: '/api/user/{userId}',
+        _params: {} as { userId: string },
+        _response: {} as { name: string },
+      },
+      createUser: {
+        url: '/api/user',
+        method: 'POST',
+        _response: {} as { name: string },
+      },
     });
 
     const user = await api.getUser({ params: { userId: '123' } });
@@ -464,6 +472,20 @@ describe('createTypedApi', () => {
 
     const newUser = await api.createUser({ body: { name: 'Bob' } });
     expect(newUser).toEqual({ name: 'Bob' });
+  });
+
+  it('endpoint without _params does not require params', async () => {
+    const responses = new Map<string, AdapterResponse>();
+    responses.set('GET:/api/users', { status: 200, data: ['ok'], headers: {} });
+    const client = makeClient(createMockAdapter(responses));
+
+    const { createTypedApi } = await import('../typed');
+    const api = createTypedApi(client, {
+      listUsers: { url: '/api/users' },
+    });
+
+    const result = await api.listUsers();
+    expect(result).toEqual(['ok']);
   });
 });
 

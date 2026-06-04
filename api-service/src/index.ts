@@ -7,6 +7,7 @@ export { createFetchAdapter } from './adapters/fetch';
 export { createUniAppAdapter } from './adapters/uniapp';
 export { createXhrAdapter } from './adapters/xhr';
 export { createTypedApi } from './typed';
+export type { TypedApi } from './typed';
 export { ApiError, NetworkError, stop } from './core/types';
 export { calcBackoff, shouldRetry, DEFAULT_RETRY } from './retry';
 export { runBeforeRequest, runAfterResponse, runBeforeRetry, runBeforeError, runInitHooks } from './hooks';
@@ -32,8 +33,6 @@ export type {
   SchemaValidator,
   EntityDef,
   EndpointSpec,
-  ApiDefinition,
-  TypedApi,
   EventHubLike,
   ApiErrorCode,
 } from './core/types';
