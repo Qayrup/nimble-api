@@ -108,10 +108,13 @@ export class MemoryCache {
       this.#removeEntry(key, entry);
       return false;
     }
-    // staleTime expired means data is no longer valid for TTL use
     if (Date.now() - entry.timestamp > entry.staleTime) {
       return false;
     }
+    // Bump LRU + lastAccess
+    this.#store.delete(key);
+    entry.lastAccess = Date.now();
+    this.#store.set(key, entry);
     return true;
   }
 
