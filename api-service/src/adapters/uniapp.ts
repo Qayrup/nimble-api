@@ -48,9 +48,11 @@ export function createUniAppAdapter(): RequestAdapter {
         requestConfig.name = 'file';
 
         const task = uni.uploadFile(requestConfig);
+        let onAbortUpload: (() => void) | undefined;
         if (signal) {
           if (signal.aborted) { task.abort?.(); return Promise.reject(new DOMException('Aborted', 'AbortError')); }
-          signal.addEventListener('abort', () => task.abort?.(), { once: true });
+          onAbortUpload = () => task.abort?.();
+          signal.addEventListener('abort', onAbortUpload, { once: true });
         }
         if (onUploadProgress && typeof (task as Record<string, unknown>).onProgressUpdate === 'function') {
           (task as Record<string, Function>).onProgressUpdate((res: { totalBytesSent?: number; totalBytesExpectedToSend?: number }) => {
@@ -58,9 +60,13 @@ export function createUniAppAdapter(): RequestAdapter {
           });
         }
         return new Promise((resolve, reject) => {
+          const done = (): void => {
+            if (onAbortUpload && signal) signal.removeEventListener('abort', onAbortUpload);
+          };
           if (typeof task.then === 'function') {
             Promise.resolve(task as unknown as Promise<Record<string, unknown>>)
               .then((res) => {
+                done();
                 resolve({
                   status: (res.statusCode as number) ?? 200,
                   data: typeof res.data === 'string'
@@ -69,7 +75,7 @@ export function createUniAppAdapter(): RequestAdapter {
                   headers: {},
                 });
               })
-              .catch((err: Error) => reject(err));
+              .catch((err: Error) => { done(); reject(err); });
           } else {
             reject(new Error('UniApp uploadFile returned a non-promise task; callback-based API not supported'));
           }
@@ -77,21 +83,27 @@ export function createUniAppAdapter(): RequestAdapter {
       }
 
       const task = uni.request(requestConfig);
+      let onAbortReq: (() => void) | undefined;
       if (signal) {
         if (signal.aborted) { task.abort?.(); return Promise.reject(new DOMException('Aborted', 'AbortError')); }
-        signal.addEventListener('abort', () => task.abort?.(), { once: true });
+        onAbortReq = () => task.abort?.();
+        signal.addEventListener('abort', onAbortReq, { once: true });
       }
       return new Promise((resolve, reject) => {
+        const done = (): void => {
+          if (onAbortReq && signal) signal.removeEventListener('abort', onAbortReq);
+        };
         if (typeof task.then === 'function') {
           Promise.resolve(task as unknown as Promise<Record<string, unknown>>)
             .then((res) => {
+              done();
               resolve({
                 status: (res.statusCode as number) ?? 200,
                 data: res.data,
                 headers: (res.header as Record<string, string>) || {},
               });
             })
-            .catch((err: Error) => reject(err));
+            .catch((err: Error) => { done(); reject(err); });
         } else {
           reject(new Error('UniApp request returned a non-promise task; callback-based API not supported'));
         }
