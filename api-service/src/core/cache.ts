@@ -162,8 +162,14 @@ export class MemoryCache {
   }
 
   importState(json: string): void {
-    this.clear();
-    const state = JSON.parse(json) as {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(json);
+    } catch {
+      return; // corrupted JSON, ignore silently
+    }
+
+    const state = parsed as {
       entries: Array<{
         key: string;
         data: unknown;
@@ -176,6 +182,9 @@ export class MemoryCache {
       maxSize: number;
     };
 
+    if (!state || !Array.isArray(state.entries)) return;
+
+    this.clear();
     this.#maxSize = state.maxSize ?? Infinity;
 
     for (const item of state.entries) {
