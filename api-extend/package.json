@@ -1,0 +1,30 @@
+{
+  "name": "@nimble-api/api-extend",
+  "version": "1.0.0",
+  "description": "Extensions for @nimble-api/api-service — polling and other request patterns",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf dist tsconfig.tsbuildinfo"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "5.9"
+  }
+}

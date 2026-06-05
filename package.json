@@ -12,10 +12,11 @@
   },
   "workspaces": [
     "api-service",
+    "api-extend",
     "eventhub"
   ],
   "scripts": {
-    "build": "npm run build -w @nimble-api/eventhub && npm run build -w @nimble-api/api-service",
+    "build": "npm run build -w @nimble-api/eventhub && npm run build -w @nimble-api/api-service && npm run build -w @nimble-api/api-extend",
     "typecheck": "npm run typecheck --workspaces",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"**/*.ts\"",
