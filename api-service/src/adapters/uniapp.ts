@@ -26,7 +26,7 @@ export function createUniAppAdapter(): RequestAdapter {
       const uni = getUni();
       if (!uni) throw new Error('UniApp environment not available');
 
-      const { url, method, headers, body } = config;
+      const { url, method, headers, body, timeout, signal, responseType, onUploadProgress } = config;
 
       const isUpload = method === 'UPLOAD';
       const requestConfig: Record<string, unknown> = {
@@ -34,13 +34,29 @@ export function createUniAppAdapter(): RequestAdapter {
         method: isUpload ? 'POST' : method,
         header: headers,
         data: body,
+        timeout,
       };
+
+      if (responseType === 'text') {
+        requestConfig.responseType = 'text';
+      } else if (responseType === 'arrayBuffer') {
+        requestConfig.dataType = 'arraybuffer';
+      }
 
       if (isUpload) {
         requestConfig.filePath = (body as Record<string, unknown>)?.file;
         requestConfig.name = 'file';
 
         const task = uni.uploadFile(requestConfig);
+        if (signal) {
+          if (signal.aborted) { task.abort?.(); return Promise.reject(new DOMException('Aborted', 'AbortError')); }
+          signal.addEventListener('abort', () => task.abort?.(), { once: true });
+        }
+        if (onUploadProgress && typeof (task as Record<string, unknown>).onProgressUpdate === 'function') {
+          (task as Record<string, Function>).onProgressUpdate((res: { totalBytesSent?: number; totalBytesExpectedToSend?: number }) => {
+            onUploadProgress({ loaded: res.totalBytesSent ?? 0, total: res.totalBytesExpectedToSend ?? 0 });
+          });
+        }
         return new Promise((resolve, reject) => {
           if (typeof task.then === 'function') {
             Promise.resolve(task as unknown as Promise<Record<string, unknown>>)
@@ -61,6 +77,10 @@ export function createUniAppAdapter(): RequestAdapter {
       }
 
       const task = uni.request(requestConfig);
+      if (signal) {
+        if (signal.aborted) { task.abort?.(); return Promise.reject(new DOMException('Aborted', 'AbortError')); }
+        signal.addEventListener('abort', () => task.abort?.(), { once: true });
+      }
       return new Promise((resolve, reject) => {
         if (typeof task.then === 'function') {
           Promise.resolve(task as unknown as Promise<Record<string, unknown>>)
