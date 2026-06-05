@@ -254,20 +254,35 @@ export class EventHub<T = Record<string, unknown>> {
 
     return new Promise<T[K]>((resolve, reject) => {
       let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      let settled = false;
+      const onAbort = (): void => {
+        if (settled) return;
+        settled = true;
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+        unsub();
+        const err = new Error('[@nimble-api/eventhub] once() aborted');
+        err.name = 'AbortError';
+        reject(err);
+      };
 
       const unsub = this.on(
         event,
         (payload) => {
           if (opts?.filter && !opts.filter(payload)) return;
+          settled = true;
           if (timeoutId !== undefined) clearTimeout(timeoutId);
           unsub();
+          if (signal) signal.removeEventListener('abort', onAbort);
           resolve(payload);
         },
       );
 
       if (opts?.timeout != null) {
         timeoutId = setTimeout(() => {
+          if (settled) return;
+          settled = true;
           unsub();
+          if (signal) signal.removeEventListener('abort', onAbort);
           const err = new Error('[@nimble-api/eventhub] once() timed out');
           err.name = 'TimeoutError';
           reject(err);
@@ -275,17 +290,11 @@ export class EventHub<T = Record<string, unknown>> {
       }
 
       if (signal) {
-        signal.addEventListener(
-          'abort',
-          () => {
-            if (timeoutId !== undefined) clearTimeout(timeoutId);
-            unsub();
-            const err = new Error('[@nimble-api/eventhub] once() aborted');
-            err.name = 'AbortError';
-            reject(err);
-          },
-          { once: true },
-        );
+        if (signal.aborted) {
+          onAbort();
+        } else {
+          signal.addEventListener('abort', onAbort, { once: true });
+        }
       }
     });
   }
