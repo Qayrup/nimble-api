@@ -89,6 +89,7 @@ export class ApiClient {
   // === Extend ===
 
   extend(options: ApiOptions): ApiClient {
+    this.#checkDestroyed();
     const merged: ApiOptions = {
       ...this.#options,
       ...options,
