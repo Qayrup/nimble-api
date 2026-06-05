@@ -3,13 +3,11 @@ import type { EndpointSpec, RequestOptions } from './core/types';
 
 type EndpointSpecs = Record<string, EndpointSpec<any, any>>;
 
-type HasSuppression<T> = T extends { lock: true }
-  ? true
-  : T extends { debounce: number }
-    ? true
-    : T extends { throttle: number }
-      ? true
-      : false;
+type HasSuppression<T> = T extends { debounce: number } ? true
+  : T extends { throttle: number } ? true
+  : T extends { lock: true } ? true
+  : T extends { lock: boolean } ? true
+  : false;
 
 type SuppressReturn<T, Spec> = HasSuppression<Spec> extends true ? T | null : T;
 
