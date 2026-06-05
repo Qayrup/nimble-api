@@ -14,9 +14,9 @@ type UniAPI = { request: UniRequestFn; uploadFile: UniUploadFn };
 let _uniCache: UniAPI | undefined | null;
 
 function getUni(): UniAPI | undefined {
-  if (_uniCache !== undefined) return _uniCache ?? undefined;
+  if (_uniCache) return _uniCache;
   const uni = (globalThis as Record<string, unknown>).uni as UniAPI | undefined;
-  _uniCache = uni ?? null;
+  if (uni) _uniCache = uni;
   return uni;
 }
 
