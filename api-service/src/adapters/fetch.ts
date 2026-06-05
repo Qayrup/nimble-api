@@ -1,4 +1,5 @@
 import type { RequestAdapter, AdapterRequestConfig, AdapterResponse } from '../core/types';
+import { ApiError } from '../core/types';
 
 export function createFetchAdapter(timeout = 30000): RequestAdapter {
   return {
@@ -56,7 +57,13 @@ export function createFetchAdapter(timeout = 30000): RequestAdapter {
           try {
             data = await res.json();
           } catch {
-            throw new Error(`Invalid JSON response from ${url} (status ${res.status})`);
+            throw new ApiError(`Invalid JSON response from ${url}`, {
+              code: 'ERR_BAD_RESPONSE',
+              status: res.status,
+              data: null,
+              request: { url, method: config.method },
+              response: { status: res.status, headers: {} },
+            });
           }
         }
 

@@ -1,4 +1,5 @@
 import type { RequestAdapter, AdapterRequestConfig, AdapterResponse } from '../core/types';
+import { ApiError } from '../core/types';
 
 export function createXhrAdapter(timeout = 30000): RequestAdapter {
   return {
@@ -66,7 +67,13 @@ export function createXhrAdapter(timeout = 30000): RequestAdapter {
             try {
               data = JSON.parse(xhr.responseText);
             } catch {
-              throw new Error(`Invalid JSON response from ${config.method} ${config.url} (status ${xhr.status})`);
+              throw new ApiError(`Invalid JSON response from ${config.method} ${config.url}`, {
+                code: 'ERR_BAD_RESPONSE',
+                status: xhr.status,
+                data: null,
+                request: { url: config.url, method: config.method },
+                response: { status: xhr.status, headers: {} },
+              });
             }
           }
 
