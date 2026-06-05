@@ -3,34 +3,40 @@ import type { SubscribeOptions, Unsubscribe, MetaEventPayloads } from './core/ty
 
 type AnyHandler = (...args: unknown[]) => void;
 
-function wrapDebounce(fn: AnyHandler, ms: number): AnyHandler {
+interface CancellableWrapper extends AnyHandler {
+  _cancelled?: boolean;
+}
+
+function wrapDebounce(fn: AnyHandler, ms: number): CancellableWrapper {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  return (...args: unknown[]) => {
+  const wrapped: CancellableWrapper = (...args: unknown[]) => {
     if (timer !== undefined) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = undefined;
-      fn(...args);
+      if (!wrapped._cancelled) fn(...args);
     }, ms);
   };
+  return wrapped;
 }
 
-function wrapThrottle(fn: AnyHandler, ms: number): AnyHandler {
+function wrapThrottle(fn: AnyHandler, ms: number): CancellableWrapper {
   let lastTime = 0;
   let trailing: ReturnType<typeof setTimeout> | undefined;
-  return (...args: unknown[]) => {
+  const wrapped: CancellableWrapper = (...args: unknown[]) => {
     const now = Date.now();
     if (now - lastTime >= ms) {
       lastTime = now;
       if (trailing !== undefined) { clearTimeout(trailing); trailing = undefined; }
-      fn(...args);
+      if (!wrapped._cancelled) fn(...args);
     } else if (trailing === undefined) {
       trailing = setTimeout(() => {
         trailing = undefined;
         lastTime = Date.now();
-        fn(...args);
+        if (!wrapped._cancelled) fn(...args);
       }, ms - (now - lastTime));
     }
   };
+  return wrapped;
 }
 
 interface HandlerRecord {
@@ -91,7 +97,10 @@ export class EventHub<T = Record<string, unknown>> {
       const handlers = this.#handlers.get(event);
       if (handlers) {
         const idx = handlers.indexOf(record);
-        if (idx !== -1) handlers.splice(idx, 1);
+        if (idx !== -1) {
+          this.#cancelHandler(handlers[idx]);
+          handlers.splice(idx, 1);
+        }
         if (handlers.length === 0) this.#handlers.delete(event);
       }
       if (!this.#emittingMeta) {
@@ -129,7 +138,10 @@ export class EventHub<T = Record<string, unknown>> {
 
     const unsub = (): void => {
       const idx = this.#wildcardHandlers.indexOf(wc);
-      if (idx !== -1) this.#wildcardHandlers.splice(idx, 1);
+      if (idx !== -1) {
+        this.#cancelHandler(this.#wildcardHandlers[idx].record);
+        this.#wildcardHandlers.splice(idx, 1);
+      }
       if (!this.#emittingMeta) {
         this.#emitMeta('listenerRemoved', { event: pattern });
       }
@@ -171,7 +183,10 @@ export class EventHub<T = Record<string, unknown>> {
       const handlers = this.#handlers.get(event);
       if (handlers) {
         const idx = handlers.indexOf(record);
-        if (idx !== -1) handlers.splice(idx, 1);
+        if (idx !== -1) {
+          this.#cancelHandler(handlers[idx]);
+          handlers.splice(idx, 1);
+        }
         if (handlers.length === 0) this.#handlers.delete(event);
       }
       if (!this.#emittingMeta) {
@@ -206,7 +221,10 @@ export class EventHub<T = Record<string, unknown>> {
 
     const unsub = (): void => {
       const idx = this.#anyHandlers.indexOf(record);
-      if (idx !== -1) this.#anyHandlers.splice(idx, 1);
+      if (idx !== -1) {
+        this.#cancelHandler(this.#anyHandlers[idx]);
+        this.#anyHandlers.splice(idx, 1);
+      }
       if (!this.#emittingMeta) {
         this.#emitMeta('listenerRemoved', { event: '*' });
       }
@@ -300,7 +318,10 @@ export class EventHub<T = Record<string, unknown>> {
           const handlers = this.#handlers.get(event);
           if (handlers) {
             const idx = handlers.indexOf(wrapped);
-            if (idx !== -1) handlers.splice(idx, 1);
+            if (idx !== -1) {
+              this.#cancelHandler(handlers[idx]);
+              handlers.splice(idx, 1);
+            }
             if (handlers.length === 0) this.#handlers.delete(event);
           }
           if (!this.#emittingMeta) {
@@ -321,7 +342,10 @@ export class EventHub<T = Record<string, unknown>> {
       const handlers = this.#handlers.get(event);
       if (handlers) {
         const idx = handlers.indexOf(wrapped);
-        if (idx !== -1) handlers.splice(idx, 1);
+        if (idx !== -1) {
+          this.#cancelHandler(handlers[idx]);
+          handlers.splice(idx, 1);
+        }
         if (handlers.length === 0) this.#handlers.delete(event);
       }
       if (!this.#emittingMeta) {
@@ -348,6 +372,7 @@ export class EventHub<T = Record<string, unknown>> {
 
     for (let i = 0; i < handlers.length; i++) {
       if (handlers[i].original === (handler as AnyHandler)) {
+        this.#cancelHandler(handlers[i]);
         handlers.splice(i, 1);
         if (handlers.length === 0) this.#handlers.delete(event);
         if (!this.#emittingMeta) {
@@ -361,6 +386,10 @@ export class EventHub<T = Record<string, unknown>> {
   offAll(event?: keyof T & string): void {
     if (this.#destroyed) return;
     if (event) {
+      const handlers = this.#handlers.get(event);
+      if (handlers) {
+        for (const record of handlers) this.#cancelHandler(record);
+      }
       const existed = this.#handlers.delete(event);
       if (existed) {
         this.#emitMeta('listenerRemoved', { event });
@@ -373,6 +402,12 @@ export class EventHub<T = Record<string, unknown>> {
         }
       }
     } else {
+      for (const arr of this.#handlers.values()) {
+        for (const record of arr) this.#cancelHandler(record);
+      }
+      for (const record of this.#anyHandlers) this.#cancelHandler(record);
+      for (const wh of this.#wildcardHandlers) this.#cancelHandler(wh.record);
+
       const names = [...this.#handlers.keys()].filter(
         n => n !== 'listenerAdded' && n !== 'listenerRemoved',
       );
@@ -656,6 +691,11 @@ export class EventHub<T = Record<string, unknown>> {
   // === 生命周期 ===
 
   clear(): void {
+    for (const arr of this.#handlers.values()) {
+      for (const record of arr) this.#cancelHandler(record);
+    }
+    for (const record of this.#anyHandlers) this.#cancelHandler(record);
+    for (const wh of this.#wildcardHandlers) this.#cancelHandler(wh.record);
     this.#handlers.clear();
     this.#anyHandlers.length = 0;
     this.#wildcardHandlers.length = 0;
@@ -663,6 +703,11 @@ export class EventHub<T = Record<string, unknown>> {
 
   dispose(): void {
     this.#destroyed = true;
+    for (const arr of this.#handlers.values()) {
+      for (const record of arr) this.#cancelHandler(record);
+    }
+    for (const record of this.#anyHandlers) this.#cancelHandler(record);
+    for (const wh of this.#wildcardHandlers) this.#cancelHandler(wh.record);
     this.#handlers.clear();
     this.#anyHandlers.length = 0;
     this.#wildcardHandlers.length = 0;
@@ -683,6 +728,11 @@ export class EventHub<T = Record<string, unknown>> {
       wrapped = wrapDebounce(wrapped, opts.debounce);
     }
     return wrapped;
+  }
+
+  #cancelHandler(record: HandlerRecord): void {
+    const w = record.raw as CancellableWrapper;
+    if (w._cancelled !== undefined) w._cancelled = true;
   }
 
   #checkDestroyed(): void {
