@@ -512,8 +512,10 @@ export class ApiClient {
 
     // onError
     if (state.options.onError && state.error) {
-      const code = (state.error.data as { code?: number })?.code;
-      const eventKey = (code != null ? state.options.onError[code] : undefined) ?? state.options.onError.default;
+      const code = typeof state.error.data === 'object' && state.error.data !== null
+        ? (state.error.data as Record<string, unknown>).code
+        : undefined;
+      const eventKey = (code != null ? state.options.onError[code as number] : undefined) ?? state.options.onError.default;
       if (eventKey) {
         try { hub.emit(eventKey, state.error.data); } catch { /* event errors are non-critical */ }
       }
