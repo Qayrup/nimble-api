@@ -2,7 +2,7 @@ import type { RetryConfig } from './core/types';
 
 export const DEFAULT_RETRY: Required<RetryConfig> = {
   limit: 2,
-  methods: ['GET', 'PUT', 'HEAD', 'DELETE', 'OPTIONS', 'TRACE'],
+  methods: ['GET', 'PUT', 'HEAD', 'DELETE', 'OPTIONS'],
   statusCodes: [408, 413, 429, 500, 502, 503, 504],
   backoff: 'exponential',
   baseDelay: 1000,
