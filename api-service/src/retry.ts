@@ -18,7 +18,7 @@ export function calcBackoff(config: RetryConfig, attempt: number): number {
     ? base * Math.pow(2, attempt - 1)
     : base;
 
-  return Math.min(delay, max) + Math.random() * 200;
+  return Math.min(delay + Math.random() * 200, max);
 }
 
 export function shouldRetry(
