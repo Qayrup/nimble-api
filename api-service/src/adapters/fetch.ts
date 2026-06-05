@@ -15,11 +15,13 @@ export function createFetchAdapter(timeout = 30000): RequestAdapter {
         timeoutId = setTimeout(() => controller.abort(), effectiveTimeout);
       }
 
+      let abortHandler: (() => void) | undefined;
       if (config.signal) {
         if (config.signal.aborted) {
           controller.abort();
         } else {
-          config.signal.addEventListener('abort', () => controller.abort(), { once: true });
+          abortHandler = () => controller.abort();
+          config.signal.addEventListener('abort', abortHandler, { once: true });
         }
       }
 
@@ -75,6 +77,9 @@ export function createFetchAdapter(timeout = 30000): RequestAdapter {
         return { status: res.status, data, headers: resHeaders };
       } finally {
         if (timeoutId) clearTimeout(timeoutId);
+        if (abortHandler && config.signal) {
+          config.signal.removeEventListener('abort', abortHandler);
+        }
       }
     },
   };

@@ -44,8 +44,9 @@ export function createXhrAdapter(timeout = 30000): RequestAdapter {
         }
 
         // AbortSignal
+        let onAbort: (() => void) | undefined;
         if (config.signal) {
-          const onAbort = (): void => {
+          onAbort = (): void => {
             xhr.abort();
             reject(new DOMException('The request was aborted', 'AbortError'));
           };
@@ -56,7 +57,14 @@ export function createXhrAdapter(timeout = 30000): RequestAdapter {
           config.signal.addEventListener('abort', onAbort, { once: true });
         }
 
+        const cleanupSignal = (): void => {
+          if (onAbort && config.signal) {
+            config.signal.removeEventListener('abort', onAbort);
+          }
+        };
+
         xhr.onload = () => {
+          cleanupSignal();
           let data: unknown;
           const rt = config.responseType ?? 'json';
           if (rt === 'blob' || rt === 'arrayBuffer') {
@@ -94,10 +102,12 @@ export function createXhrAdapter(timeout = 30000): RequestAdapter {
         };
 
         xhr.onerror = () => {
+          cleanupSignal();
           reject(new Error(`[@nimble-api/api-service] XHR network error for ${config.method} ${config.url}`));
         };
 
         xhr.ontimeout = () => {
+          cleanupSignal();
           reject(new Error(`[@nimble-api/api-service] XHR timeout for ${config.method} ${config.url}`));
         };
 
