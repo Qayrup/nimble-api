@@ -33,7 +33,6 @@ const DEFAULT_OPTIONS: NormalizedRequestOptions = {
   onUploadProgress: null,
   onDownloadProgress: null,
   totalTimeout: null,
-  paramsSerializer: null,
   maxContentLength: null,
 };
 
@@ -443,7 +442,6 @@ export class ApiClient {
       onUploadProgress: opts.onUploadProgress ?? null,
       onDownloadProgress: opts.onDownloadProgress ?? null,
       totalTimeout: opts.totalTimeout ?? this.#options.totalTimeout ?? DEFAULT_OPTIONS.totalTimeout,
-      paramsSerializer: opts.paramsSerializer ?? this.#options.paramsSerializer ?? DEFAULT_OPTIONS.paramsSerializer,
       maxContentLength: opts.maxContentLength ?? this.#options.maxContentLength ?? DEFAULT_OPTIONS.maxContentLength,
     };
   }
@@ -498,7 +496,7 @@ export class ApiClient {
         if (id != null) {
           // Store entity in cache with entity tag
           const entityKey = `@entity:${entity.name}:${String(id)}`;
-          this.#cache.set(entityKey, item, Infinity, [entity.name]);
+          this.#cache.set(entityKey, item, Infinity, [entity.name], 86400000);
         }
       }
     }

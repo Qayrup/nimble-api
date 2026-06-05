@@ -44,7 +44,7 @@ cache.set('key-1', { name: 'Alice' }, 30000, ['users', 'profile']);
 
 ### `delete(key)` / `has(key)` / `clear()`
 
-基本缓存操作。`has()` 会自动检查 TTL 过期。
+基本缓存操作。`has()` 会自动检查 TTL 和 gcTime 过期，两者任一过期即返回 `false`。
 
 ### `invalidateByTags(tags)`
 
@@ -57,7 +57,44 @@ cache.invalidateByTags(['users']);
 
 ### `invalidateByKey(key)`
 
-`delete()` 的别名，按 key 失效单条缓存。
+按 key 失效单条缓存。
+
+### `invalidateByKeyPrefix(prefix)`
+
+按 key 前缀批量失效。适用于批量清除同一资源的所有缓存变体。
+
+```ts
+cache.invalidateByKeyPrefix('/api/users');
+// '/api/users', '/api/users/1', '/api/users/1/posts' 等全部失效
+```
+
+### `exportState()` / `importState(json)`
+
+导出/导入缓存完整状态（含数据、时间戳、标签索引）。用于 SSR 快照、跨端同步等场景。
+
+```ts
+// 序列化当前缓存状态
+const snapshot = cache.exportState();
+
+// 在另一端还原
+const newCache = new MemoryCache(200);
+newCache.importState(snapshot);
+```
+
+### gcTime 垃圾回收
+
+每个缓存条目可单独设置 `gcTime`。当条目距离上次访问超过 `gcTime` 时，在 `get()` / `getStale()` / `has()` 调用时**惰性删除**。`gcTime` 默认 `Infinity`（永不回收）。
+
+```ts
+// 缓存条目在最近 5 分钟内未被访问则自动回收
+cache.set('key', data, 30000, ['users'], 300000);
+//                                      ^^^^^^ gcTime = 5min
+```
+
+| 参数 | 说明 |
+|------|------|
+| `staleTime` (ttl) | 数据新鲜度——过期视为 stale |
+| `gcTime` | 垃圾回收——过期立即删除 |
 
 ### 属性
 
@@ -104,7 +141,33 @@ await api.get('/users', { cache: { skip: true } });
 
 ### 缓存 Key 生成
 
-基于 FNV-1a 哈希算法，对 `URL` + `params` + `body` 生成稳定的缓存 key，确保对象 key 顺序不影响 hash 值。
+基于 FNV-1a 哈希算法，对 `URL` + `params` + `body` 生成稳定的缓存 key：
+
+```ts
+import { generateCacheKey } from '@nimble-api/api-service';
+
+const key = generateCacheKey('/users/{id}', { id: '1' }, {});
+// key: "c8a7b3..." — FNV-1a 64-bit hash hex string
+```
+
+特性：
+- 对象 key 按字母序排序后序列化，确保 `{a:1,b:2}` 和 `{b:2,a:1}` 生成相同 hash
+- 仅当 `cache.ttl > 0` 时才生成 key（TTL=0 时不缓存）
+- URL 模板参数已被替换为实际值后才参与 hash
+
+### gcTime 全局配置
+
+```ts
+const api = createApiClient({
+  cache: { ttl: 60000, gcTime: 300000 },
+});
+
+await api.get('/users/1', {
+  cache: { gcTime: 600000 }, // 单个请求可覆盖 gcTime
+});
+```
+
+`gcTime` 到达后条目在下次访问时惰性删除。设为 `0` 可立即回收。
 
 ### 实体标签
 

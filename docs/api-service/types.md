@@ -16,6 +16,12 @@ interface ApiOptions {
   adapter?: RequestAdapter;
   hooks?: Hooks;
   eventHub?: EventHubLike;
+  validateStatus?: (status: number) => boolean;
+  totalTimeout?: number;
+  paramsSerializer?: (params: Record<string, unknown>) => string;
+  maxContentLength?: number;
+  xsrfCookieName?: string;
+  xsrfHeaderName?: string;
 }
 ```
 
@@ -24,7 +30,7 @@ interface ApiOptions {
 ```ts
 interface RequestOptions {
   params?: Record<string, string | number>;
-  searchParams?: Record<string, string | number>;
+  searchParams?: Record<string, string | number | (string | number)[] | null | undefined>;
   json?: unknown;
   form?: FormData;
   text?: string;
@@ -34,12 +40,18 @@ interface RequestOptions {
   timeout?: number;
   responseType?: 'json' | 'text' | 'blob' | 'arrayBuffer';
   retry?: RetryConfig | false;
-  cache?: { ttl?: number; mode?: 'ttl' | 'swr'; tags?: string[]; skip?: boolean };
+  cache?: { ttl?: number; mode?: 'ttl' | 'swr'; tags?: string[]; skip?: boolean; gcTime?: number };
   schema?: SchemaValidator;
   onSuccess?: string | string[];
   onError?: { default: string; [code: number]: string };
   entities?: EntityDef[];
   invalidates?: string[];
+  validateStatus?: (status: number) => boolean;
+  onUploadProgress?: (progress: { loaded: number; total: number }) => void;
+  onDownloadProgress?: (progress: { loaded: number; total: number }) => void;
+  totalTimeout?: number;
+  paramsSerializer?: (params: Record<string, unknown>) => string;
+  maxContentLength?: number;
 }
 ```
 
@@ -54,6 +66,7 @@ interface CacheOptions {
   ttl?: number;
   mode?: 'ttl' | 'swr';
   maxSize?: number;
+  gcTime?: number; // 垃圾回收时间（ms），过期后回收到 gc 缓存
 }
 ```
 
@@ -61,7 +74,7 @@ interface CacheOptions {
 
 ```ts
 interface CacheControl {
-  invalidate(opts: { tags?: string[]; key?: string }): void;
+  invalidate(opts: { tags?: string[]; key?: string; keyPrefix?: string }): void;
   clear(): void;
 }
 ```
@@ -127,6 +140,7 @@ interface RetryConfig {
 
 ```ts
 interface Hooks {
+  init?: InitHook[];
   beforeRequest?: BeforeRequestHook[];
   afterResponse?: AfterResponseHook[];
   beforeRetry?: BeforeRetryHook[];
@@ -137,11 +151,14 @@ interface Hooks {
 ### 钩子函数类型
 
 ```ts
+type InitHook = (opts: RequestOptions) => RequestOptions | Promise<RequestOptions>;
 type BeforeRequestHook = (state: RequestState) => RequestState | Promise<RequestState>;
 type AfterResponseHook = (state: RequestState) => RequestState | Promise<RequestState>;
 type BeforeRetryHook = (state: RequestState) => RequestState | Promise<RequestState> | typeof stop;
 type BeforeErrorHook = (state: RequestState) => RequestState | Promise<RequestState>;
 ```
+
+`init` 钩子在请求创建阶段执行，可修改 `RequestOptions`；其余钩子在生命周期各阶段执行。`beforeRetry` 中返回 `stop` 可中止重试。
 
 ### `RequestState`
 
@@ -203,7 +220,7 @@ interface EntityDef {
 
 ```ts
 interface EventHubLike {
-  emit: (event: string, payload: unknown) => Promise<void>;
+  emit: (event: string, payload: unknown) => void;
   on: (event: string, handler: (payload: unknown) => void) => () => void;
 }
 ```
@@ -214,10 +231,26 @@ interface EventHubLike {
 
 ## 错误
 
+### `ApiErrorCode`
+
+```ts
+type ApiErrorCode =
+  | 'ERR_NETWORK'
+  | 'ERR_BAD_REQUEST'
+  | 'ERR_BAD_RESPONSE'
+  | 'ERR_TIMEOUT'
+  | 'ERR_ABORTED'
+  | 'ERR_VALIDATION'
+  | 'ERR_MAX_SIZE'
+  | 'ERR_UNKNOWN';
+```
+
 ### `ApiError`
 
 ```ts
 class ApiError extends Error {
+  name: 'ApiError';
+  code: ApiErrorCode;
   status: number;
   data: unknown;
   request: { url: string; method: string };
@@ -225,30 +258,92 @@ class ApiError extends Error {
 }
 ```
 
+### `NetworkError`
+
+```ts
+class NetworkError extends ApiError {
+  name: 'NetworkError';
+  // code 固定为 'ERR_NETWORK'，status 固定为 0
+}
+```
+
+网络错误（DNS 解析失败、连接拒绝等）自动创建 `NetworkError`，通过 `instanceof` 可区分处理：
+
+```ts
+import { NetworkError } from '@nimble-api/api-service';
+
+try {
+  await api.get('/data');
+} catch (err) {
+  if (err instanceof NetworkError) {
+    // 断网或 DNS 错误
+  }
+}
+```
+
 ---
 
 ## 类型化 API
 
-### `ApiDefinition` / `TypedApi<T>`
+### `EndpointSpec<TParams, TResponse>`
+
+端点规格定义，用于 `createTypedApi` 生成类型安全的端点方法。
 
 ```ts
-interface ApiDefinition {
-  [name: string]: {
-    params?: Record<string, string | number>;
-    body?: Record<string, unknown>;
-    response?: unknown;
-  };
+interface EndpointSpec<
+  TParams extends Record<string, string | number> | undefined = undefined,
+  TResponse = unknown,
+> {
+  url: string;
+  method?: string;
+  _params?: TParams;        // phantom field — 仅用于参数类型推断
+  _response?: TResponse;    // phantom field — 仅用于返回值类型推断
+  lock?: boolean;            // 并发锁，同端点同时只允许一个调用
+  cache?: RequestOptions['cache'];
+  retry?: RequestOptions['retry'];
+  schema?: SchemaValidator;
+  onSuccess?: string | string[];
+  onError?: { default: string; [code: number]: string };
+  entities?: EntityDef[];
+  invalidates?: string[];
+  headers?: Record<string, string>;
+  timeout?: number;
+  responseType?: RequestOptions['responseType'];
 }
+```
 
-type TypedApi<T extends ApiDefinition> = {
+`_params` 和 `_response` 是 phantom 字段，仅用于编译期类型推导，运行时不被访问。`method` 默认 `GET`。
+
+### `TypedApi<T>`
+
+`createTypedApi` 返回的代理对象类型：
+
+```ts
+type TypedApi<T extends Record<string, EndpointSpec<any, any>>> = {
   [K in keyof T & string]: (
-    opts?: {
-      params?: T[K]['params'];
-      body?: T[K]['body'];
-    } & Omit<RequestOptions, 'json' | 'form' | 'text'>,
-  ) => Promise<T[K]['response']>;
+    ...args: ... // 根据 spec._params 自动推导 opts.params 类型
+  ) => Promise<
+    T[K] extends { lock: true } ? T[K]['_response'] | null : T[K]['_response']
+  >
 };
 ```
+
+- 不带 `_params` 的端点 → `(opts?)` 参数完全可选
+- 带 `_params` 的端点 → `(opts: { params: TParams })` 要求传入 params
+- `lock: true` → 返回值联合 `| null`（并发时返回 null）
+
+### `createTypedApi(client, endpoints)`
+
+从 `ApiClient` 和端点规格映射创建类型化 API：
+
+```ts
+function createTypedApi<T extends Record<string, EndpointSpec<any, any>>>(
+  client: ApiClient,
+  endpoints: T,
+): TypedApi<T>
+```
+
+使用示例见 [ApiClient 文档](./client#createtypedapi)。
 
 ---
 

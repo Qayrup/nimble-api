@@ -16,6 +16,7 @@ type BeforeErrorHook = (state: RequestState) => RequestState | Promise<RequestSt
 ```ts
 const api = createApiClient({
   hooks: {
+    init: [initHook1],
     beforeRequest: [hook1, hook2],
     afterResponse: [hook3],
     beforeRetry: [hook4],
@@ -25,6 +26,31 @@ const api = createApiClient({
 ```
 
 `extend()` 创建的客户端会合并父客户端的钩子（父钩子先执行）。
+
+---
+
+## init
+
+在请求创建的**最早阶段**执行——此时 `RequestState` 尚未构建，钩子直接接收和返回 `RequestOptions`。适用于修改请求参数、注入默认值等。
+
+```ts
+type InitHook = (opts: RequestOptions) => RequestOptions | Promise<RequestOptions>;
+```
+
+```ts
+const addTimestampHook: InitHook = (opts) => {
+  // 为所有请求自动添加 _t 参数
+  return {
+    ...opts,
+    searchParams: {
+      ...opts.searchParams,
+      _t: Date.now(),
+    } as Record<string, number>,
+  };
+};
+```
+
+执行顺序：正向遍历数组。
 
 ---
 
@@ -127,3 +153,31 @@ interface RequestState {
 ```
 
 `meta` 字段可用于在钩子之间传递自定义上下文。
+
+---
+
+## 内置钩子
+
+### `createBearerAuth(token)`
+
+便捷工厂——生成一个 `beforeRequest` 钩子，自动为每个请求添加 `Authorization: Bearer <token>` 头。支持静态 token 和动态 token 函数。
+
+```ts
+import { createBearerAuth } from '@nimble-api/api-service';
+
+// 静态 token
+const api = createApiClient({
+  hooks: {
+    beforeRequest: [createBearerAuth('my-static-token')],
+  },
+});
+
+// 动态 token — 每次请求时调用 getAccessToken() 获取最新值
+const api = createApiClient({
+  hooks: {
+    beforeRequest: [createBearerAuth(() => getAccessToken())],
+  },
+});
+```
+
+动态 token 适用于 token 自动刷新的场景——每次请求前都会重新调用函数获取最新 token，无需手动更新钩子。

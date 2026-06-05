@@ -23,28 +23,29 @@ export function createTypedApi<T extends EndpointSpecs>(
   for (const name of Object.keys(endpoints) as (keyof T & string)[]) {
     const spec = endpoints[name];
 
-    const rawMethod = (opts?: Record<string, unknown>) => {
+    const rawMethod = (reqOpts?: Record<string, unknown>) => {
       const url = spec.url;
       const method = (spec.method ?? 'GET').toUpperCase();
 
       const requestOpts: RequestOptions = {
-        ...opts,
+        ...reqOpts,
         method,
-        params: (opts?.params ?? {}) as Record<string, string | number>,
-        cache: spec.cache ?? (opts?.cache as RequestOptions['cache']),
-        retry: spec.retry ?? (opts?.retry as RequestOptions['retry']),
-        schema: spec.schema ?? (opts?.schema as RequestOptions['schema']),
-        onSuccess: spec.onSuccess ?? (opts?.onSuccess as RequestOptions['onSuccess']),
-        onError: spec.onError ?? (opts?.onError as RequestOptions['onError']),
-        entities: spec.entities ?? (opts?.entities as RequestOptions['entities']),
-        invalidates: spec.invalidates ?? (opts?.invalidates as RequestOptions['invalidates']),
-        headers: { ...spec.headers, ...(opts?.headers as Record<string, string>) },
-        timeout: spec.timeout ?? (opts?.timeout as number),
-        responseType: spec.responseType ?? (opts?.responseType as RequestOptions['responseType']),
+        params: (reqOpts?.params ?? {}) as Record<string, string | number>,
+        cache: spec.cache ?? (reqOpts?.cache as RequestOptions['cache']),
+        retry: spec.retry ?? (reqOpts?.retry as RequestOptions['retry']),
+        schema: spec.schema ?? (reqOpts?.schema as RequestOptions['schema']),
+        onSuccess: spec.onSuccess ?? (reqOpts?.onSuccess as RequestOptions['onSuccess']),
+        onError: spec.onError ?? (reqOpts?.onError as RequestOptions['onError']),
+        entities: spec.entities ?? (reqOpts?.entities as RequestOptions['entities']),
+        invalidates: spec.invalidates ?? (reqOpts?.invalidates as RequestOptions['invalidates']),
+        headers: { ...spec.headers, ...(reqOpts?.headers as Record<string, string>) },
+        timeout: spec.timeout ?? (reqOpts?.timeout as number),
+        responseType: spec.responseType ?? (reqOpts?.responseType as RequestOptions['responseType']),
+        validateStatus: spec.validateStatus ?? (reqOpts?.validateStatus as ((status: number) => boolean)),
       };
 
-      if ((opts as Record<string, unknown>)?.body !== undefined) {
-        requestOpts.json = (opts as Record<string, unknown>).body;
+      if (reqOpts?.body !== undefined) {
+        requestOpts.json = reqOpts.body;
       }
 
       switch (method) {
@@ -60,11 +61,11 @@ export function createTypedApi<T extends EndpointSpecs>(
     };
 
     if (spec.lock) {
-      api[name] = (async (opts?: Record<string, unknown>) => {
+      api[name] = (async (reqOpts?: Record<string, unknown>) => {
         if (locks.get(name)) return null;
         locks.set(name, true);
         try {
-          return await rawMethod(opts);
+          return await rawMethod(reqOpts);
         } finally {
           locks.delete(name);
         }

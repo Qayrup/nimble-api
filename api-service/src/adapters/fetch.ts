@@ -53,15 +53,10 @@ export function createFetchAdapter(timeout = 30000): RequestAdapter {
         } else if (responseType === 'text') {
           data = await res.text();
         } else {
-          const contentType = res.headers.get('content-type');
-          if (contentType?.includes('application/json')) {
-            try {
-              data = await res.json();
-            } catch {
-              throw new Error(`Invalid JSON response from ${url} (status ${res.status})`);
-            }
-          } else {
-            data = await res.text();
+          try {
+            data = await res.json();
+          } catch {
+            throw new Error(`Invalid JSON response from ${url} (status ${res.status})`);
           }
         }
 

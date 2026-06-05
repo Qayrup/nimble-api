@@ -122,7 +122,7 @@ describe('Cache', () => {
     expect(callCount).toHaveBeenCalledTimes(1);
   });
 
-  it('skips cache with skipCache option', async () => {
+  it('skips cache with skip option', async () => {
     const callCount = vi.fn();
     const adapter: RequestAdapter = {
       async request() {

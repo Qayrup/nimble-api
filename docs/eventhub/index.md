@@ -5,9 +5,9 @@
 ## 设计理念
 
 - **类型安全** — 通过 `EventMap` 泛型约束事件名与载荷类型，编译期即可发现错误
-- **O(1) 查找** — 底层使用 `Map<string, Set<HandlerRecord>>` 实现，查找复杂度 O(1)
+- **O(1) 查找** — 底层使用 `Map<string, HandlerRecord[]>` 实现，查找复杂度 O(1)
 - **快照安全** — `emit()` 期间增删监听器不影响当前发射周期
-- **多范式** — 支持回调订阅、Promise 一次性、AsyncIterable 流式消费
+- **多范式** — 支持回调订阅、Promise 一次性、AsyncIterable 流式消费、防抖/节流、glob 通配符
 
 ## 核心概念
 
@@ -33,6 +33,111 @@ interface MyEvents extends EventMap {
 import { createEventHub } from '@nimble-api/eventhub';
 
 const hub = createEventHub<MyEvents>();
+
+// 或使用 EventHubOptions 自定义分隔符
+const hub2 = createEventHub<MyEvents>({ delimiter: '/.' });
+```
+
+## 订阅方式对比
+
+EventHub 提供 5 种订阅方式，按适用场景选择：
+
+| 方法 | 触发次数 | 参数签名 | 适用场景 |
+|------|:--:|------|------|
+| `on(event, handler)` | 无限 | `(payload)` | 持久的业务逻辑监听 |
+| `once(event, opts?)` | 1 次 | 返回 `Promise<payload>` | 等待某个一次性事件 |
+| `many(event, n, handler)` | n 次 | `(payload)` | "前 N 次"模式，如新手引导步骤 |
+| `onPattern(pattern, handler)` | 无限 | `(event, payload)` | 按命名空间批量监听，如 `order:*` |
+| `onAny(handler)` | 无限 | `(event, payload)` | 全局日志、埋点、调试 |
+
+## emit 模式对比
+
+| 方法 | 执行方式 | 错误处理 | 返回 |
+|------|------|------|------|
+| `emit(event, payload)` | 同步并行 | 收集后抛 `AggregateError` | `void` |
+| `emitSerial(event, payload)` | 异步顺序 `await` | 遇错即停 | `Promise<void>` |
+| `emitAsync(event, payload)` | 异步并行 | 不抛错，逐个查看 | `Promise<PromiseSettledResult[]>` |
+
+## 实际场景
+
+### 防抖搜索输入
+
+```ts
+const hub = createEventHub<{ 'search:input': { query: string } }>();
+
+// 方式一：options 传参
+hub.on('search:input', ({ query }) => fetchResults(query), { debounce: 300 });
+
+// 方式二：链式调用（等价写法）
+hub.debounce(300).on('search:input', ({ query }) => fetchResults(query));
+
+// 触发
+inputEl.addEventListener('input', (e) => {
+  hub.emit('search:input', { query: e.target.value });
+});
+```
+
+### 节流滚动事件
+
+```ts
+const hub = createEventHub<{ 'scroll:progress': { pct: number } }>();
+
+hub.on('scroll:progress', ({ pct }) => updateProgressBar(pct), { throttle: 100 });
+
+window.addEventListener('scroll', () => {
+  hub.emit('scroll:progress', { pct: computeProgress() });
+});
+```
+
+### 通配符批量订阅
+
+```ts
+const hub = createEventHub<{
+  'order:created': { orderId: string };
+  'order:paid': { orderId: string };
+  'order:shipped': { orderId: string };
+  'user:login': { userId: string };
+}>();
+
+// * 匹配单段：order:created, order:paid, order:shipped，不匹配 order:items:updated
+hub.onPattern('order:*', (event, payload) => {
+  analytics.track(event, payload);
+});
+
+// ** 匹配多段：order:items:updated 也会匹配
+hub.onPattern('order:**', (event, payload) => { /* ... */ });
+```
+
+### 结合 AbortController — React Hook
+
+```ts
+function useEvent<T extends EventMap, K extends keyof T & string>(
+  hub: EventHub<T>,
+  event: K,
+  handler: (payload: T[K]) => void,
+) {
+  useEffect(() => {
+    const controller = new AbortController();
+    hub.on(event, handler, { signal: controller.signal });
+    return () => controller.abort();
+  }, [hub, event, handler]);
+}
+```
+
+### 流式处理 — AsyncIterable
+
+```ts
+const hub = createEventHub<{ 'log:entry': { level: string; msg: string } }>();
+
+// 在后台异步消费日志流
+(async () => {
+  for await (const entry of hub.events('log:entry')) {
+    await sendToServer(entry);
+  }
+})();
+
+// 任意位置发射
+hub.emit('log:entry', { level: 'error', msg: 'connection lost' });
 ```
 
 ## 生命周期
@@ -50,4 +155,13 @@ EventHub 实例有两个层级的清理：
   using hub = createEventHub();
   // ...
 } // 自动调用 dispose()
+```
+
+## 内存泄漏检测
+
+通过 `setMaxListeners` 设置上限，超出时在控制台收到警告：
+
+```ts
+hub.setMaxListeners(20);
+// 若某个事件注册超过 20 个 handler，输出 MaxListenersExceededWarning
 ```

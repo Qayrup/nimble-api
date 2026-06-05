@@ -1,5 +1,5 @@
 export function globToRegex(pattern: string, delimiter = ':./'): RegExp {
-  const escaped = delimiter.replace(/[-\\^\]\[]/g, '\\$&');
+  const escaped = delimiter.replace(/[\]\\-]/g, '\\$&');
   const singleSegment = `[^${escaped}]*`;
   const singleChar = `[^${escaped}]`;
 

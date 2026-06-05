@@ -143,7 +143,6 @@ export interface NormalizedRequestOptions {
   onUploadProgress: ((progress: { loaded: number; total: number }) => void) | null;
   onDownloadProgress: ((progress: { loaded: number; total: number }) => void) | null;
   totalTimeout: number | null;
-  paramsSerializer: ((params: Record<string, unknown>) => string) | null;
   maxContentLength: number | null;
 }
 
@@ -270,5 +269,6 @@ export interface EndpointSpec<
   headers?: Record<string, string>;
   timeout?: number;
   responseType?: RequestOptions['responseType'];
+  validateStatus?: (status: number) => boolean;
 }
 

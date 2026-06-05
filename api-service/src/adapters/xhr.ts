@@ -66,7 +66,7 @@ export function createXhrAdapter(timeout = 30000): RequestAdapter {
             try {
               data = JSON.parse(xhr.responseText);
             } catch {
-              data = xhr.responseText;
+              throw new Error(`Invalid JSON response from ${config.method} ${config.url} (status ${xhr.status})`);
             }
           }
 

@@ -31,8 +31,8 @@ const unsub = hub.on('user:login', (payload) => {
 // 一次性监听
 const payload = await hub.once('user:login', { timeout: 5000 });
 
-// 派发事件
-await hub.emit('user:login', { userId: 'u1', timestamp: Date.now() });
+// 派发事件（同步）
+hub.emit('user:login', { userId: 'u1', timestamp: Date.now() });
 
 // 取消订阅
 unsub();
@@ -102,24 +102,38 @@ await api.get('/users/1');
 
 ```ts
 import { createApiClient, createTypedApi } from '@nimble-api/api-service';
-import { z } from 'zod';
+import type { EndpointSpec } from '@nimble-api/api-service';
 
 const client = createApiClient({ baseUrl: 'https://api.example.com' });
 
-const typed = createTypedApi(client, {
+const api = createTypedApi(client, {
   getUser: {
-    method: 'GET',
-    path: '/users/{id}',
-    schema: z.object({ id: z.string(), name: z.string() }),
-  },
+    url: '/users/{id}',
+    _params: {} as { id: string },
+    _response: {} as { id: string; name: string },
+  } satisfies EndpointSpec,
+
   createUser: {
+    url: '/users',
     method: 'POST',
-    path: '/users',
-    schema: z.object({ id: z.string(), name: z.string() }),
-  },
+    _response: {} as { id: string; name: string },
+    onSuccess: 'cache:users:updated',
+  } satisfies EndpointSpec,
+
+  // lock: 防并发重复调用，同时多次调用只发一次请求
+  refreshToken: {
+    url: '/auth/refresh',
+    method: 'POST',
+    lock: true,
+    _response: {} as { token: string },
+  } satisfies EndpointSpec,
 });
 
-// 完全类型推导
-const user = await typed.getUser({ params: { id: '1' } });
-// user 类型为 { id: string; name: string }
+// 完全类型推导 — id 必填，返回值类型自动推断
+const user = await api.getUser({ params: { id: '1' } });
+// user: { id: string; name: string }
+
+// lock 端点返回值自动加 | null
+const token = await api.refreshToken();
+// token: { token: string } | null
 ```

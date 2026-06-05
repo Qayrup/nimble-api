@@ -2,6 +2,7 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
+    "tsBuildInfoFile": ".tsbuildinfo",
     "rootDir": "..",
     "paths": {
       "@nimble-api/eventhub": ["../eventhub/src/index.ts"]

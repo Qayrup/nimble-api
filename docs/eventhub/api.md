@@ -10,8 +10,10 @@ on<K>(event: K, handler: (payload: T[K]) => void, opts?: SubscribeOptions): Unsu
 
 **参数：**
 - `event` — 事件名（来自 EventMap 的 key）
-- `handler` — 事件处理函数，接收类型匹配的 payload
+- `handler` — 事件处理函数，接收类型匹配的 payload。非 function 类型抛出 `TypeError`
 - `opts.signal` — AbortSignal，abort 时自动取消订阅
+- `opts.debounce` — 防抖（ms）
+- `opts.throttle` — 节流（ms）
 
 **返回：** `Unsubscribe` — 无参函数，调用即取消订阅
 
@@ -44,17 +46,81 @@ hub.onAny((event, payload) => {
 
 ---
 
+## `prependListener(event, handler, opts?)`
+
+与 `on()` 相同，但 handler 添加到队列头部，优先于已注册的 handler 执行。
+
+```ts
+prependListener<K>(event: K, handler: (payload: T[K]) => void, opts?: SubscribeOptions): Unsubscribe
+```
+
+```ts
+hub.on('user:login', () => console.log('后注册'));
+hub.prependListener('user:login', () => console.log('先执行'));
+
+hub.emit('user:login', { userId: 'u1' });
+// 输出：先执行 → 后注册
+```
+
+> 注意：`prependListener` 不支持 debounce/throttle 包装，handler 以原始形式注册。
+
+---
+
+## `many(event, n, handler, opts?)`
+
+监听恰好 n 次后自动取消订阅。
+
+```ts
+many<K>(event: K, n: number, handler: (payload: T[K]) => void, opts?: SubscribeOptions): Unsubscribe
+```
+
+```ts
+hub.many('user:login', 3, (payload) => {
+  console.log('登录:', payload.userId);
+});
+// handler 执行 3 次后自动取消
+```
+
+---
+
+## `onPattern(pattern, handler, opts?)`
+
+基于 glob 模式的通配符订阅。匹配的事件触发时，handler 接收事件名和载荷两个参数。
+
+```ts
+onPattern(pattern: string, handler: (event: string, payload: T[keyof T]) => void, opts?: SubscribeOptions): Unsubscribe
+```
+
+分隔符默认为 `:./`，可通过 `EventHubOptions.delimiter` 自定义。
+
+```ts
+hub.onPattern('user:*', (event, payload) => {
+  console.log(`事件 "${event}" 匹配到 user:*`, payload);
+});
+
+hub.emit('user:login', { userId: 'u1' });    // 匹配
+hub.emit('user:logout', { userId: 'u1' });   // 匹配
+hub.emit('user:login:success', {});          // 不匹配 — * 只匹配单段
+
+// ** 匹配多段
+hub.onPattern('user:**', () => {}); // 匹配 user:login, user:login:success
+hub.emit('order:created', { orderId: 'o1' }); // 不匹配
+```
+
+---
+
 ## `once(event, opts?)`
 
 一次性监听，返回 Promise，事件触发后自动取消订阅。
 
 ```ts
-once<K>(event: K, opts?: { signal?: AbortSignal; timeout?: number }): Promise<T[K]>
+once<K>(event: K, opts?: { signal?: AbortSignal; timeout?: number; filter?: (payload: T[K]) => boolean }): Promise<T[K]>
 ```
 
 **参数：**
 - `opts.timeout` — 超时（ms），超时抛出 `TimeoutError`
 - `opts.signal` — abort 时抛出 `AbortError`
+- `opts.filter` — 过滤函数，仅匹配时 resolve
 
 ```ts
 // 超时等待
@@ -63,22 +129,27 @@ try {
 } catch (err) {
   // TimeoutError
 }
+
+// 带过滤条件的一次性监听
+const payload = await hub.once('order:created', {
+  filter: (p) => p.amount > 100,
+});
 ```
 
 ---
 
 ## `emit(event, payload)`
 
-异步发射事件（并行调用所有 handler），捕获每个 handler 的错误并以 `AggregateError` 抛出。
+同步发射事件（并行调用所有 handler），捕获每个 handler 的错误并以 `AggregateError` 抛出。
 
 ```ts
-emit<K>(event: K, payload: T[K]): Promise<void>
+emit<K>(event: K, payload: T[K]): void
 ```
 
 快照安全：emit 过程中增删监听器不影响当前发射周期的 handler 集合。
 
 ```ts
-await hub.emit('user:login', { userId: 'u1', timestamp: Date.now() });
+hub.emit('user:login', { userId: 'u1', timestamp: Date.now() });
 ```
 
 ---
@@ -92,6 +163,23 @@ emitSerial<K>(event: K, payload: T[K]): Promise<void>
 ```
 
 适用于需要严格顺序执行的场景（如状态机状态变更）。
+
+---
+
+## `emitAsync(event, payload)`
+
+并行异步发射事件，返回 `Promise.allSettled` 结果数组。不抛出错误，每个 handler 的结果独立查看。
+
+```ts
+emitAsync<K>(event: K, payload: T[K]): Promise<PromiseSettledResult<unknown>[]>
+```
+
+```ts
+const results = await hub.emitAsync('order:created', { orderId: 'o1' });
+for (const r of results) {
+  if (r.status === 'rejected') console.error(r.reason);
+}
+```
 
 ---
 
@@ -130,8 +218,12 @@ waitFor<K>(event: K, opts?: { signal?: AbortSignal; timeout?: number }): Promise
 返回 AsyncIterable，可 `for await...of` 流式消费事件。
 
 ```ts
-events<K>(event: K, opts?: { signal?: AbortSignal }): AsyncIterable<T[K]>
+events<K>(event: K, opts?: { signal?: AbortSignal; bufferMax?: number }): AsyncIterable<T[K]>
 ```
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `bufferMax` | `number?` | `1000` | 最大缓冲事件数，超出时丢弃最旧事件 |
 
 ```ts
 for await (const payload of hub.events('order:created')) {
@@ -166,6 +258,73 @@ listenerCount(event?: K): number
 
 ```ts
 eventNames(): (keyof T & string)[]
+```
+
+---
+
+## `listeners(event?)`
+
+返回指定事件的全部 handler 数组，省略参数返回全部事件的 handler。
+
+```ts
+listeners<K>(event?: K): ((payload: T[K]) => void)[]
+```
+
+含通配符匹配的 handler。
+
+---
+
+## `setMaxListeners(n)` / `getMaxListeners()`
+
+设置/获取最大监听器数量限制。超出限制时发出控制台警告（仅首次）。
+
+```ts
+setMaxListeners(n: number): void
+getMaxListeners(): number
+```
+
+```ts
+hub.setMaxListeners(50);
+```
+
+---
+
+## `debounce(ms)` / `throttle(ms)` — 流控链
+
+链式调用为 handler 添加防抖/节流，作用等同于 `SubscribeOptions` 中的同名参数。同时设置时 `throttle` 优先生效。
+
+```ts
+debounce(ms: number): { on, onPattern, onAny }
+throttle(ms: number): { on, onPattern, onAny }
+```
+
+```ts
+// 链式写法 — 输入框中输入停止 300ms 后触发搜索
+input.addEventListener('input', (e) => {
+  hub.debounce(300).on('search:input', () => search(e.target.value));
+});
+
+// 等价于 options 写法
+hub.on('search:input', () => search(e.target.value), { debounce: 300 });
+```
+
+---
+
+## `EventHubOptions`
+
+构造 EventHub 实例时可传入的可选配置。
+
+```ts
+interface EventHubOptions {
+  delimiter?: string; // 用于 onPattern 的 glob 分隔符，默认 ':./'
+}
+```
+
+```ts
+// 自定义分隔符
+const hub = new EventHub({ delimiter: '/.' });
+hub.onPattern('user/*', handler);
+hub.emit('user/login', {}); // 匹配
 ```
 
 ---
@@ -211,3 +370,47 @@ EventHub 内部维护两个元事件，handler 抛出的错误被静默忽略：
 - `listenerRemoved` — 移除监听器时触发，payload: `{ event: string }`
 
 仅在事件名有至少一个监听器时才发射元事件，避免无意义的开销。
+
+---
+
+## 常见模式速查
+
+### 等待 UI 交互结果
+
+```ts
+// 弹窗确认 → 返回用户选择
+const showDialog = (msg: string) => {
+  hub.emit('dialog:show', { message: msg });
+  return hub.once('dialog:confirm', { timeout: 30000 });
+};
+
+const result = await showDialog('确定删除？');
+```
+
+### 事件日志 / 调试
+
+```ts
+hub.onAny((event, payload) => {
+  console.debug(`[${new Date().toISOString()}] ${event}`, payload);
+});
+```
+
+### 全局错误边界
+
+```ts
+hub.onPattern('**:error', (event, payload) => {
+  reportToSentry(event, payload);
+});
+```
+
+### 钩子生命周期管理
+
+```ts
+type Lifecycle = { 'plugin:init': void; 'plugin:destroy': void };
+const lifecycle = createEventHub<Lifecycle>();
+
+// 触发时自动清理
+const controller = new AbortController();
+lifecycle.on('plugin:init', setup, { signal: controller.signal });
+lifecycle.on('plugin:destroy', () => controller.abort());
+```

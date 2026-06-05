@@ -151,12 +151,15 @@ export class EventHub<T = Record<string, unknown>> {
       throw new TypeError(`[@nimble-api/eventhub] Handler must be a function, got ${typeof handler}`);
     }
 
-    const record: HandlerRecord = { raw: handler as AnyHandler };
+    const raw = this.#wrapHandler(handler as AnyHandler, opts);
+    const record: HandlerRecord = { raw };
 
     if (!this.#handlers.has(event)) {
       this.#handlers.set(event, []);
     }
     this.#handlers.get(event)!.unshift(record);
+
+    this.#checkMaxListeners(event);
 
     this.#checkMaxListeners(event);
     if (!this.#emittingMeta) {
@@ -285,9 +288,11 @@ export class EventHub<T = Record<string, unknown>> {
       this.#handlers.set(event, []);
     }
 
+    const wrappedHandler = this.#wrapHandler(handler as AnyHandler, opts);
+
     const wrapped: HandlerRecord = {
-      raw: ((payload: T[typeof event]) => {
-        handler(payload);
+      raw: ((payload: T[K]) => {
+        wrappedHandler(payload);
         count++;
         if (count >= n) {
           const handlers = this.#handlers.get(event);

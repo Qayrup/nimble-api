@@ -47,7 +47,9 @@ export function createUniAppAdapter(): RequestAdapter {
               .then((res) => {
                 resolve({
                   status: (res.statusCode as number) ?? 200,
-                  data: typeof res.data === 'string' ? JSON.parse(res.data) : res.data,
+                  data: typeof res.data === 'string'
+                    ? (() => { try { return JSON.parse(res.data); } catch { throw new Error(`Invalid JSON response from upload (status ${res.statusCode})`); } })()
+                    : res.data,
                   headers: {},
                 });
               })

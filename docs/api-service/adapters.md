@@ -63,6 +63,37 @@ const adapter = createUniAppAdapter();
 
 ---
 
+## XHR 适配器
+
+基于 `XMLHttpRequest` 的适配器，支持上传/下载进度回调——fetch 适配器受限于 Streams API 无法原生支持 `onUploadProgress`。
+
+```ts
+import { createXhrAdapter } from '@nimble-api/api-service';
+
+const adapter = createXhrAdapter(30000); // timeout = 30s
+
+const api = createApiClient({ adapter });
+```
+
+**特性：**
+- 支持 `onUploadProgress` 和 `onDownloadProgress` 回调
+- `responseType: 'blob'` / `'arrayBuffer'` 设置 `xhr.responseType`
+- 表单数据 (`FormData`) 直接传入 `xhr.send()` 不做序列化
+- 解析响应头为 `Record<string, string>`（key 转小写）
+
+```ts
+await api.post('/upload', {
+  form: myFormData,
+  onUploadProgress: ({ loaded, total }) => {
+    console.log(`已上传: ${((loaded / total) * 100).toFixed(1)}%`);
+  },
+});
+```
+
+> fetch 适配器**不支持** `onUploadProgress` / `onDownloadProgress`。需要进度回调时请使用 XHR 适配器。
+
+---
+
 ## 自定义适配器
 
 实现 `RequestAdapter` 接口即可接入任何 HTTP 库：
