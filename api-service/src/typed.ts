@@ -107,7 +107,7 @@ export function createTypedApi<T extends EndpointSpecs>(
             execute(reqOpts).then(
               resolve as (v: unknown) => void,
               reject as (e: unknown) => void,
-            );
+            ).finally(() => { debounceStates.delete(name); });
           }, effectiveDebounce);
         });
       }
