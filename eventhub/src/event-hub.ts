@@ -316,29 +316,29 @@ export class EventHub<T = Record<string, unknown>> {
       this.#handlers.set(event, []);
     }
 
-    const wrappedHandler = this.#wrapHandler(handler as AnyHandler, opts);
+    const wrapped: HandlerRecord = {} as HandlerRecord;
 
-    const wrapped: HandlerRecord = {
-      original: handler as AnyHandler,
-      raw: ((payload: T[K]) => {
-        wrappedHandler(payload);
-        count++;
-        if (count >= n) {
-          const handlers = this.#handlers.get(event);
-          if (handlers) {
-            const idx = handlers.indexOf(wrapped);
-            if (idx !== -1) {
-              this.#cancelHandler(handlers[idx]);
-              handlers.splice(idx, 1);
-            }
-            if (handlers.length === 0) this.#handlers.delete(event);
+    const innerHandler = ((payload: T[K]) => {
+      handler(payload);
+      count++;
+      if (count >= n) {
+        const handlers = this.#handlers.get(event);
+        if (handlers) {
+          const idx = handlers.indexOf(wrapped);
+          if (idx !== -1) {
+            this.#cancelHandler(handlers[idx]);
+            handlers.splice(idx, 1);
           }
-          if (!this.#emittingMeta) {
-            this.#emitMeta('listenerRemoved', { event });
-          }
+          if (handlers.length === 0) this.#handlers.delete(event);
         }
-      }) as AnyHandler,
-    };
+        if (!this.#emittingMeta) {
+          this.#emitMeta('listenerRemoved', { event });
+        }
+      }
+    }) as AnyHandler;
+
+    wrapped.raw = this.#wrapHandler(innerHandler, opts);
+    wrapped.original = handler as AnyHandler;
 
     this.#handlers.get(event)!.push(wrapped);
 
