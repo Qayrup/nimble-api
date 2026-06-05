@@ -44,6 +44,7 @@ export class ApiClient {
   #inFlight = new Map<string, Promise<unknown>>();
   #destroyed = false;
   #eventHub: EventHubLike | undefined;
+  #disposeController = new AbortController();
 
   constructor(options: ApiOptions = {}) {
     this.#options = { ...options };
@@ -123,6 +124,7 @@ export class ApiClient {
   // === Lifecycle ===
 
   dispose(): void {
+    this.#disposeController.abort();
     this.#destroyed = true;
     this.#cache.clear();
     this.#inFlight.clear();
@@ -166,13 +168,28 @@ export class ApiClient {
       ? generateCacheKey(rawUrl, opts.params ?? {}, body ?? {})
       : '';
 
+    // Merge per-request signal with client-level dispose signal
+    let mergedSignal: AbortSignal | undefined;
+    const disposeSig = this.#disposeController.signal;
+    if (opts.signal && disposeSig) {
+      const m = new AbortController();
+      if (opts.signal.aborted || disposeSig.aborted) { m.abort(); }
+      else {
+        opts.signal.addEventListener('abort', () => m.abort(), { once: true });
+        disposeSig.addEventListener('abort', () => m.abort(), { once: true });
+      }
+      mergedSignal = m.signal;
+    } else {
+      mergedSignal = opts.signal ?? disposeSig;
+    }
+
     const state: RequestState = {
       request: {
         url,
         method,
         headers,
         body,
-        signal: opts.signal,
+        signal: mergedSignal,
       },
       error: undefined,
       retryCount: 0,
