@@ -276,14 +276,8 @@ export class ApiClient {
         }
         if (stale) {
           state.cache = { key: cacheKey, hit: true, stale: true };
-          // Return stale, revalidate in background
-          this.#doFetch(state, cacheKey, cacheTags).catch((err) => {
-            state.error = err instanceof ApiError ? err : new NetworkError(
-              err instanceof Error ? err.message : String(err),
-              { request: state.request },
-            );
-            this.#dispatchEvents(state);
-          });
+          // Return stale, revalidate in background — failures are silent
+          this.#doFetch(state, cacheKey, cacheTags).catch(() => {});
           return stale.data as T;
         }
       } else if (cacheMode === 'ttl') {
