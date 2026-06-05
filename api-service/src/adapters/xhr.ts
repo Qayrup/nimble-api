@@ -65,25 +65,27 @@ export function createXhrAdapter(timeout = 30000): RequestAdapter {
 
         xhr.onload = () => {
           cleanupSignal();
-          let data: unknown;
-          const rt = config.responseType ?? 'json';
-          if (rt === 'blob' || rt === 'arrayBuffer') {
-            data = xhr.response;
-          } else if (rt === 'text') {
-            data = xhr.responseText;
-          } else {
-            try {
-              data = JSON.parse(xhr.responseText);
-            } catch {
-              throw new ApiError(`Invalid JSON response from ${config.method} ${config.url}`, {
-                code: 'ERR_BAD_RESPONSE',
-                status: xhr.status,
-                data: null,
-                request: { url: config.url, method: config.method },
-                response: { status: xhr.status, headers: {} },
-              });
+          try {
+            let data: unknown;
+            const rt = config.responseType ?? 'json';
+            if (rt === 'blob' || rt === 'arrayBuffer') {
+              data = xhr.response;
+            } else if (rt === 'text') {
+              data = xhr.responseText;
+            } else {
+              try {
+                data = JSON.parse(xhr.responseText);
+              } catch {
+                reject(new ApiError(`Invalid JSON response from ${config.method} ${config.url}`, {
+                  code: 'ERR_BAD_RESPONSE',
+                  status: xhr.status,
+                  data: null,
+                  request: { url: config.url, method: config.method },
+                  response: { status: xhr.status, headers: {} },
+                }));
+                return;
+              }
             }
-          }
 
           const resHeaders: Record<string, string> = {};
           const headerStr = xhr.getAllResponseHeaders();
@@ -99,6 +101,9 @@ export function createXhrAdapter(timeout = 30000): RequestAdapter {
             data,
             headers: resHeaders,
           });
+          } catch (err) {
+            reject(err);
+          }
         };
 
         xhr.onerror = () => {
