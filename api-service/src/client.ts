@@ -1,6 +1,6 @@
 import { MemoryCache } from './core/cache';
 import { buildUrl } from './utils/url-builder';
-import { generateCacheKey } from './utils/cache-key';
+import { generateCacheKey, stableNormalize } from './utils/cache-key';
 import { createFetchAdapter } from './adapters/fetch';
 import { runBeforeRequest, runAfterResponse, runBeforeRetry, runBeforeError, runInitHooks } from './hooks';
 import { calcBackoff, shouldRetry, DEFAULT_RETRY } from './retry';
@@ -254,7 +254,7 @@ export class ApiClient {
 
     const url = state.request.url;
     const method = state.request.method;
-    const bodyHash = state.request.body ? JSON.stringify(state.request.body) : '';
+    const bodyHash = state.request.body ? JSON.stringify(stableNormalize(state.request.body)) : '';
     const dedupKey = `${method}:${url}:${bodyHash}`;
 
     // 2. In-flight dedup
