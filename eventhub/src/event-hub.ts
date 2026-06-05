@@ -35,6 +35,7 @@ function wrapThrottle(fn: AnyHandler, ms: number): AnyHandler {
 
 interface HandlerRecord {
   raw: AnyHandler;
+  original: AnyHandler;
 }
 
 interface WildcardRecord {
@@ -74,7 +75,7 @@ export class EventHub<T = Record<string, unknown>> {
     }
 
     const raw = this.#wrapHandler(handler as AnyHandler, opts);
-    const record: HandlerRecord = { raw };
+    const record: HandlerRecord = { raw, original: handler as AnyHandler };
 
     if (!this.#handlers.has(event)) {
       this.#handlers.set(event, []);
@@ -117,7 +118,7 @@ export class EventHub<T = Record<string, unknown>> {
 
     const regex = globToRegex(pattern, this.#delimiter);
     const raw = this.#wrapHandler(handler as AnyHandler, opts);
-    const record: HandlerRecord = { raw };
+    const record: HandlerRecord = { raw, original: handler as AnyHandler };
     const wc: WildcardRecord = { pattern, regex, record };
     this.#wildcardHandlers.push(wc);
 
@@ -152,7 +153,7 @@ export class EventHub<T = Record<string, unknown>> {
     }
 
     const raw = this.#wrapHandler(handler as AnyHandler, opts);
-    const record: HandlerRecord = { raw };
+    const record: HandlerRecord = { raw, original: handler as AnyHandler };
 
     if (!this.#handlers.has(event)) {
       this.#handlers.set(event, []);
@@ -195,7 +196,7 @@ export class EventHub<T = Record<string, unknown>> {
     }
 
     const raw = this.#wrapHandler(handler as AnyHandler, opts);
-    const record: HandlerRecord = { raw };
+    const record: HandlerRecord = { raw, original: handler as AnyHandler };
     this.#anyHandlers.push(record);
 
     this.#checkMaxListeners('*');
@@ -291,6 +292,7 @@ export class EventHub<T = Record<string, unknown>> {
     const wrappedHandler = this.#wrapHandler(handler as AnyHandler, opts);
 
     const wrapped: HandlerRecord = {
+      original: handler as AnyHandler,
       raw: ((payload: T[K]) => {
         wrappedHandler(payload);
         count++;
@@ -345,7 +347,7 @@ export class EventHub<T = Record<string, unknown>> {
     if (!handlers) return;
 
     for (let i = 0; i < handlers.length; i++) {
-      if (handlers[i].raw === (handler as AnyHandler)) {
+      if (handlers[i].original === (handler as AnyHandler)) {
         handlers.splice(i, 1);
         if (handlers.length === 0) this.#handlers.delete(event);
         if (!this.#emittingMeta) {
