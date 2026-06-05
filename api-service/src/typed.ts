@@ -3,15 +3,32 @@ import type { EndpointSpec, RequestOptions } from './core/types';
 
 type EndpointSpecs = Record<string, EndpointSpec<any, any>>;
 
-type LockedReturn<T, Spec> = Spec extends { lock: true } ? T | null : T;
+type HasSuppression<T> = T extends { lock: true }
+  ? true
+  : T extends { debounce: number }
+    ? true
+    : T extends { throttle: number }
+      ? true
+      : false;
+
+type SuppressReturn<T, Spec> = HasSuppression<Spec> extends true ? T | null : T;
 
 export type TypedApi<T extends EndpointSpecs> = {
   [K in keyof T & string]: (
     ...args: NonNullable<T[K]['_params']> extends Record<string, string | number>
       ? [opts: { params: NonNullable<T[K]['_params']> } & Omit<RequestOptions, 'json' | 'form' | 'text'>]
       : [opts?: Omit<RequestOptions, 'json' | 'form' | 'text'>]
-  ) => Promise<LockedReturn<NonNullable<T[K]['_response']>, T[K]>>
+  ) => Promise<SuppressReturn<NonNullable<T[K]['_response']>, T[K]>>
 };
+
+interface DebounceState {
+  timer?: ReturnType<typeof setTimeout>;
+  lastResolve: ((v: unknown) => void) | null;
+}
+
+interface ThrottleState {
+  lastTime: number;
+}
 
 export function createTypedApi<T extends EndpointSpecs>(
   client: ApiClient,
@@ -19,6 +36,8 @@ export function createTypedApi<T extends EndpointSpecs>(
 ): TypedApi<T> {
   const api = {} as TypedApi<T>;
   const locks = new Map<string, boolean>();
+  const debounceStates = new Map<string, DebounceState>();
+  const throttleStates = new Map<string, ThrottleState>();
 
   for (const name of Object.keys(endpoints) as (keyof T & string)[]) {
     const spec = endpoints[name];
@@ -60,19 +79,49 @@ export function createTypedApi<T extends EndpointSpecs>(
       }
     };
 
-    if (spec.lock) {
-      api[name] = (async (reqOpts?: Record<string, unknown>) => {
-        if (locks.get(name)) return null;
-        locks.set(name, true);
-        try {
-          return await rawMethod(reqOpts);
-        } finally {
-          locks.delete(name);
+    api[name] = ((reqOpts?: Record<string, unknown>) => {
+      const effectiveDebounce = (reqOpts?.debounce as number | false | undefined) ?? spec.debounce;
+      const effectiveThrottle = (reqOpts?.throttle as number | false | undefined) ?? spec.throttle;
+      const effectiveLock = (reqOpts?.lock as boolean | undefined) ?? spec.lock;
+
+      const execute = effectiveLock
+        ? (opts?: Record<string, unknown>) => {
+            if (locks.get(name)) return Promise.resolve(null);
+            locks.set(name, true);
+            return rawMethod(opts).finally(() => { locks.delete(name); });
+          }
+        : rawMethod;
+
+      if (effectiveDebounce) {
+        const st = debounceStates.get(name) ?? { lastResolve: null };
+        debounceStates.set(name, st);
+        if (st.timer !== undefined) {
+          clearTimeout(st.timer);
+          st.lastResolve?.(null);
         }
-      }) as TypedApi<T>[typeof name];
-    } else {
-      api[name] = rawMethod as TypedApi<T>[typeof name];
-    }
+        return new Promise((resolve, reject) => {
+          st.lastResolve = resolve as (v: unknown) => void;
+          st.timer = setTimeout(() => {
+            st.lastResolve = null;
+            st.timer = undefined;
+            execute(reqOpts).then(
+              resolve as (v: unknown) => void,
+              reject as (e: unknown) => void,
+            );
+          }, effectiveDebounce);
+        });
+      }
+
+      if (effectiveThrottle) {
+        const st = throttleStates.get(name) ?? { lastTime: 0 };
+        throttleStates.set(name, st);
+        if (Date.now() - st.lastTime < effectiveThrottle) return Promise.resolve(null);
+        st.lastTime = Date.now();
+        return execute(reqOpts);
+      }
+
+      return execute(reqOpts);
+    }) as TypedApi<T>[typeof name];
   }
 
   return api;

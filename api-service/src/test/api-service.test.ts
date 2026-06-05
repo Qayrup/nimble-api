@@ -978,3 +978,110 @@ describe('gcTime / staleTime separation', () => {
     expect(cache2.has('a')).toBe(false);
   });
 });
+
+// ============================================================
+// debounce / throttle at typed API level
+// ============================================================
+
+describe('debounce / throttle on typed API', () => {
+  it('endpoint-level debounce cancels previous call and resolves previous to null', async () => {
+    let callCount = 0;
+    const adapter: RequestAdapter = {
+      async request() {
+        callCount++;
+        await new Promise(r => setTimeout(r, 20));
+        return { status: 200, data: { ok: true }, headers: {} };
+      },
+    };
+    const client = makeClient(adapter);
+    const { createTypedApi } = await import('../typed');
+    const api = createTypedApi(client, {
+      search: { url: '/search', debounce: 50, _response: {} as { ok: boolean } },
+    });
+
+    const [r1, r2, r3] = await Promise.all([
+      api.search({ params: { q: 'a' } }),
+      api.search({ params: { q: 'ab' } }),
+      api.search({ params: { q: 'abc' } }),
+    ]);
+
+    expect(r1).toBeNull();
+    expect(r2).toBeNull();
+    expect(r3).toEqual({ ok: true });
+    expect(callCount).toBe(1);
+  });
+
+  it('endpoint-level throttle returns null for calls within window', async () => {
+    let callCount = 0;
+    const adapter: RequestAdapter = {
+      async request() {
+        callCount++;
+        return { status: 200, data: { ok: true }, headers: {} };
+      },
+    };
+    const client = makeClient(adapter);
+    const { createTypedApi } = await import('../typed');
+    const api = createTypedApi(client, {
+      track: { url: '/track', method: 'POST', throttle: 100, _response: {} as { ok: boolean } },
+    });
+
+    const r1 = await api.track({ body: { x: 1 } });
+    const r2 = await api.track({ body: { x: 2 } });
+
+    expect(r1).toEqual({ ok: true });
+    expect(r2).toBeNull();
+    expect(callCount).toBe(1);
+  });
+
+  it('debounce: false at call-time disables endpoint debounce', async () => {
+    let callCount = 0;
+    const urls: string[] = [];
+    const adapter: RequestAdapter = {
+      async request(config) {
+        callCount++;
+        urls.push(config.url);
+        return { status: 200, data: { ok: true }, headers: {} };
+      },
+    };
+    const client = makeClient(adapter);
+    const { createTypedApi } = await import('../typed');
+    const api = createTypedApi(client, {
+      search: { url: '/search', debounce: 300, _response: {} as { ok: boolean } },
+    });
+
+    const r1 = await api.search({ params: { q: 'a' }, debounce: false });
+    const r2 = await api.search({ params: { q: 'b' }, debounce: false });
+
+    expect(r1).toEqual({ ok: true });
+    expect(r2).toEqual({ ok: true });
+    expect(callCount).toBe(2);
+  });
+
+  it('lock + debounce combined: debounce wraps lock, lock holds during HTTP call', async () => {
+    let callCount = 0;
+    const adapter: RequestAdapter = {
+      async request() {
+        callCount++;
+        await new Promise(r => setTimeout(r, 30));
+        return { status: 200, data: { ok: true }, headers: {} };
+      },
+    };
+    const client = makeClient(adapter);
+    const { createTypedApi } = await import('../typed');
+    const api = createTypedApi(client, {
+      guarded: { url: '/guard', lock: true, debounce: 20, _response: {} as { ok: boolean } },
+    });
+
+    // rapid calls — debounce collapses to 1, lock ensures only 1 HTTP call
+    const results = await Promise.all([
+      api.guarded({ body: { x: 1 } }),
+      api.guarded({ body: { x: 2 } }),
+      api.guarded({ body: { x: 3 } }),
+    ]);
+
+    const nonNull = results.filter(r => r !== null);
+    expect(nonNull).toHaveLength(1);
+    expect(nonNull[0]).toEqual({ ok: true });
+    expect(callCount).toBe(1);
+  });
+});

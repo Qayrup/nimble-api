@@ -118,6 +118,12 @@ export interface RequestOptions {
   totalTimeout?: number;
   paramsSerializer?: (params: Record<string, unknown>) => string;
   maxContentLength?: number;
+  /** Override per-call — prevent concurrent calls */
+  lock?: boolean;
+  /** Override per-call — debounce in ms, false to disable endpoint default */
+  debounce?: number | false;
+  /** Override per-call — throttle in ms, false to disable endpoint default */
+  throttle?: number | false;
 }
 
 // === Normalized Options (internal, all defaults filled) ===
@@ -259,6 +265,10 @@ export interface EndpointSpec<
   _response?: TResponse;
   /** Prevent concurrent calls to this endpoint. While a call is in-flight, subsequent calls return null immediately. */
   lock?: boolean;
+  /** Debounce in ms — cancels previous unsettled call and starts a new timer. Suppressed calls resolve to null. */
+  debounce?: number;
+  /** Throttle in ms — subsequent calls within the window return null immediately. */
+  throttle?: number;
   cache?: RequestOptions['cache'];
   retry?: RequestOptions['retry'];
   schema?: SchemaValidator;
