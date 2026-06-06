@@ -22,6 +22,9 @@ interface ApiOptions {
   maxContentLength?: number;
   xsrfCookieName?: string;
   xsrfHeaderName?: string;
+  xsrf?: boolean;
+  onSwrError?: (error: ApiError, key: string) => void;
+  onEventError?: (event: string, error: unknown) => void;
 }
 ```
 
@@ -53,8 +56,10 @@ interface RequestOptions {
   paramsSerializer?: (params: Record<string, unknown>) => string;
   maxContentLength?: number;
   lock?: boolean;
-  debounce?: number | false;
-  throttle?: number | false;
+  debounce?: number | false | { wait: number; abort?: boolean };
+  throttle?: number | false | { wait: number; edge?: 'leading' | 'trailing' | 'both' };
+  dedup?: boolean;
+  uploadFieldName?: string;
 }
 ```
 
@@ -107,6 +112,7 @@ interface AdapterRequestConfig {
   responseType?: 'json' | 'text' | 'blob' | 'arrayBuffer';
   onUploadProgress?: (progress: { loaded: number; total: number }) => void;
   onDownloadProgress?: (progress: { loaded: number; total: number }) => void;
+  uploadFieldName?: string;
 }
 ```
 
@@ -212,8 +218,9 @@ interface SchemaValidator {
 
 ```ts
 interface EntityDef {
-  name: string;   // 实体名（用作缓存标签）
-  idKey?: string; // ID 字段，默认 'id'
+  name: string;        // 实体名（用作缓存标签）
+  idKey?: string;      // ID 字段，默认 'id'
+  envelopeKey?: string; // 响应信封字段名，默认 'data'
 }
 ```
 
@@ -260,6 +267,7 @@ class ApiError extends Error {
   data: unknown;
   request: { url: string; method: string };
   response?: { status: number; headers: Record<string, string> };
+  cause?: unknown; // ES2022 Error cause chain
 }
 ```
 
@@ -303,9 +311,9 @@ interface EndpointSpec<
   method?: string;
   _params?: TParams;        // phantom field — 仅用于参数类型推断
   _response?: TResponse;    // phantom field — 仅用于返回值类型推断
-  lock?: boolean;            // 并发锁，同端点同时只允许一个调用
-  debounce?: number;         // 防抖（ms），取消前一次未完成调用
-  throttle?: number;         // 节流（ms），窗口内后续调用返回 null
+  lock?: boolean;
+  debounce?: number | { wait: number; abort?: boolean };
+  throttle?: number | { wait: number; edge?: 'leading' | 'trailing' | 'both' };
   cache?: RequestOptions['cache'];
   retry?: RequestOptions['retry'];
   schema?: SchemaValidator;

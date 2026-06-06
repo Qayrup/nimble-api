@@ -58,9 +58,19 @@ const api = createTypedApi(client, {
   search: { url: '/search', debounce: 300, _response: {} as Result },
 })
 
+// 防抖 + abort：取消已发出的 HTTP 请求
+const api = createTypedApi(client, {
+  liveSearch: { url: '/search', debounce: { wait: 300, abort: true }, _response: {} as Result },
+})
+
 // 节流：窗口期内后续调用返回 null
 const api = createTypedApi(client, {
   track: { url: '/track', method: 'POST', throttle: 100, _response: {} as void },
+})
+
+// 节流 trailing：只发窗口内最后一次调用
+const api = createTypedApi(client, {
+  track: { url: '/track', method: 'POST', throttle: { wait: 1000, edge: 'trailing' }, _response: {} as void },
 })
 
 // 锁：并发调用只允许一个进行中，其余返回 null
@@ -78,7 +88,7 @@ await api.search({ params: { q: 'test' }, debounce: false })
 
 ## HasSuppression 类型
 
-如果端点配置了 `lock`、`debounce` 或 `throttle`，返回类型自动变为 `T | null`，因为被抑制的调用会返回 `null`：
+如果端点配置了 `lock`、`debounce`（含对象形式）或 `throttle`（含对象形式），返回类型自动变为 `T | null`，因为被抑制的调用会返回 `null`：
 
 ```ts
 const api = createTypedApi(client, {
@@ -99,8 +109,8 @@ const b = await api.guarded()  // 类型: Data | null  ← 自动添加 null
 | `_params` | 幻影字段 | 路径参数类型定义 |
 | `_response` | 幻影字段 | 响应数据类型定义 |
 | `lock` | `boolean` | 阻止并发调用 |
-| `debounce` | `number` | 防抖延迟（ms） |
-| `throttle` | `number` | 节流间隔（ms） |
+| `debounce` | `number \| { wait: number; abort?: boolean }` | 防抖延迟（ms）；`abort: true` 取消已发出请求 |
+| `throttle` | `number \| { wait: number; edge?: 'leading' \| 'trailing' \| 'both' }` | 节流间隔（ms）；`edge` 控制发射边 |
 | `cache` | `CacheOptions` | 端点级缓存配置 |
 | `retry` | `RetryConfig` | 端点级重试配置 |
 | `schema` | `SchemaValidator` | 响应校验 |

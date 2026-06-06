@@ -26,6 +26,9 @@ const api = createApiClient({
 | `adapter` | `RequestAdapter` | `createFetchAdapter()` | HTTP 适配器 |
 | `hooks` | `Hooks` | — | 生命周期钩子 |
 | `eventHub` | `EventHubLike` | — | 事件中心实例 |
+| `xsrf` | `boolean` | `true` | 设为 `false` 关闭 XSRF 自动注入 |
+| `onSwrError` | `(error: ApiError, key: string) => void` | — | SWR 后台刷新失败回调 |
+| `onEventError` | `(event: string, error: unknown) => void` | `console.warn` | emit 事件处理器抛错时的回调 |
 
 ## HTTP 方法
 
@@ -63,8 +66,10 @@ api.options<T>('/users/{id}', opts?)
 | `entities` | `EntityDef[]` | 从响应提取的实体标签 |
 | `invalidates` | `string[]` | 请求成功后失效的缓存标签 |
 | `lock` | `boolean` | 并发锁，true 时同一端点同时只允许一个请求 |
-| `debounce` | `number \| false` | 防抖（ms），取消前一次未完成调用；false 禁用端点默认值 |
-| `throttle` | `number \| false` | 节流（ms），窗口内后续调用返回 null；false 禁用端点默认值 |
+| `debounce` | `number \| false \| { wait: number; abort?: boolean }` | 防抖（ms）；对象形式 `abort: true` 会用 AbortController 取消已发出的 HTTP 请求 |
+| `throttle` | `number \| false \| { wait: number; edge?: 'leading' \| 'trailing' \| 'both' }` | 节流（ms）；`edge` 控制发射边 |
+| `dedup` | `boolean` | `true` | 设为 `false` 跳过请求去重 |
+| `uploadFieldName` | `string` | `'file'` | UniApp 适配器文件上传表单字段名 |
 
 ## CSRF 保护
 
@@ -75,6 +80,9 @@ const api = createApiClient({
   xsrfCookieName: 'csrf-token',  // cookie 名，默认 XSRF-TOKEN
   xsrfHeaderName: 'X-CSRF-TOKEN', // header 名，默认 X-XSRF-TOKEN
 });
+
+// 或完全关闭 XSRF
+const api = createApiClient({ xsrf: false });
 ```
 
 ## 高级配置
@@ -141,6 +149,9 @@ const [a, b, c] = await Promise.all([
   api.get('/users/1'),
   api.get('/users/1'),
 ]);
+
+// 单次跳过去重
+await api.post('/users', { json: data, dedup: false });
 ```
 
 请求完成后 `inFlight` map 自动清理对应 key。`dispose()` 清空所有进行中的请求。
@@ -188,11 +199,9 @@ api.dispose();
 } // 作用域结束自动销毁
 ```
 
-## 请求去重
-
-相同请求（method + URL + body）的并发调用自动去重，只发出一次真实请求，多个调用者共享同一个 Promise。
-
 ## Schema 校验
+
+> Schema 校验在 status 检查**之后**执行：4xx/5xx 响应会先抛出，不会浪费 CPU 做无效校验。
 
 ```ts
 import { z } from 'zod';
