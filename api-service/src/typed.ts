@@ -61,7 +61,13 @@ export function createTypedApi<T extends EndpointSpecs>(
       };
 
       if (reqOpts?.body !== undefined) {
-        requestOpts.json = reqOpts.body;
+        if (reqOpts.body instanceof FormData) {
+          requestOpts.form = reqOpts.body as FormData;
+        } else if (typeof reqOpts.body === 'string') {
+          requestOpts.text = reqOpts.body;
+        } else {
+          requestOpts.json = reqOpts.body;
+        }
       }
 
       switch (method) {

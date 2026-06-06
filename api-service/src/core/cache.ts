@@ -109,6 +109,7 @@ export class MemoryCache {
       return false;
     }
     if (Date.now() - entry.timestamp > entry.staleTime) {
+      this.#removeEntry(key, entry);
       return false;
     }
     // Bump LRU + lastAccess
