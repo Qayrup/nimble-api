@@ -174,7 +174,7 @@ class SSEConnectionImpl implements SSEConnection {
       }
     }
 
-    if (!evt.explicitEvent) {
+    if (!evt.explicitEvent && evt.event !== 'message') {
       const fallback = this.#handlers.get('message');
       if (fallback) {
         for (const h of fallback) {

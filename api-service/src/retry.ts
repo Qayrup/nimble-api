@@ -29,11 +29,11 @@ export function shouldRetry(
   const methods = config.methods ?? DEFAULT_RETRY.methods;
   if (!methods.includes(method.toUpperCase())) return false;
 
-  if (status != null) {
+  if (status != null && status !== 0) {
     const statusCodes = config.statusCodes ?? DEFAULT_RETRY.statusCodes;
     return statusCodes.includes(status);
   }
 
-  // Network errors (no status) are always retriable for allowed methods
+  // Network errors (no status, or status=0) are always retriable for allowed methods
   return true;
 }

@@ -37,7 +37,7 @@ export function createFetchAdapter(timeout = 30000): RequestAdapter {
         if (qs) url = url + (url.includes('?') ? '&' : '?') + qs;
       }
 
-      const hasBody = method !== 'GET' && method !== 'DELETE' && body != null;
+      const hasBody = method !== 'GET' && method !== 'DELETE' && method !== 'HEAD' && method !== 'OPTIONS' && body != null;
       const isFormData = body instanceof FormData;
       try {
         const res = await fetch(url, {

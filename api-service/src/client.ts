@@ -165,7 +165,7 @@ export class ApiClient {
       ...this.#options.headers,
       ...opts.headers,
     };
-    if (body != null && !(body instanceof FormData) && method !== 'GET' && method !== 'DELETE') {
+    if (body != null && !(body instanceof FormData) && method !== 'GET' && method !== 'DELETE' && method !== 'HEAD' && method !== 'OPTIONS') {
       headers['Content-Type'] = 'application/json';
     }
 
@@ -285,8 +285,10 @@ export class ApiClient {
 
     const url = state.request.url;
     const method = state.request.method;
-    const bodyHash = state.request.body ? JSON.stringify(stableNormalize(state.request.body)) : '';
-    const dedupKey = `${method}:${url}:${bodyHash}`;
+    // Skip dedup for non-serializable bodies (FormData, Blob, File)
+    const skipDedup = state.request.body instanceof FormData || state.request.body instanceof Blob;
+    const bodyHash = !skipDedup && state.request.body ? JSON.stringify(stableNormalize(state.request.body)) : '';
+    const dedupKey = skipDedup ? '' : `${method}:${url}:${bodyHash}`;
 
     // 2. In-flight dedup
     if (dedupKey) {

@@ -8,7 +8,7 @@ export function createXhrAdapter(timeout = 30000): RequestAdapter {
         const xhr = new XMLHttpRequest();
         let reqUrl = config.url;
         let reqBody = config.body;
-        if (reqBody && (config.method === 'GET' || config.method === 'DELETE') && !(reqBody instanceof FormData)) {
+        if (reqBody && (config.method === 'GET' || config.method === 'DELETE' || config.method === 'HEAD' || config.method === 'OPTIONS') && !(reqBody instanceof FormData)) {
           const sp = new URLSearchParams();
           for (const [k, v] of Object.entries(reqBody as Record<string, unknown>)) {
             if (v != null) sp.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
@@ -139,7 +139,7 @@ export function createXhrAdapter(timeout = 30000): RequestAdapter {
         };
 
         // Body
-        if (reqBody != null && config.method !== 'GET' && config.method !== 'DELETE') {
+        if (reqBody != null && config.method !== 'GET' && config.method !== 'DELETE' && config.method !== 'HEAD' && config.method !== 'OPTIONS') {
           if (reqBody instanceof FormData) {
             xhr.send(reqBody);
           } else {

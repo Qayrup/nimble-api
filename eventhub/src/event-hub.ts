@@ -625,7 +625,7 @@ export class EventHub<T = Record<string, unknown>> {
       for (const rec of handlers) result.push(rec.original);
     }
     for (const wh of this.#wildcardHandlers) {
-      result.push(wh.record.raw);
+      result.push(wh.record.original);
     }
     for (const rec of this.#anyHandlers) {
       result.push(rec.original);

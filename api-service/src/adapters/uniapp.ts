@@ -47,12 +47,8 @@ export function createUniAppAdapter(): RequestAdapter {
         timeout,
       };
 
-      if (responseType === 'text') {
-        requestConfig.responseType = 'text';
-      } else if (responseType === 'arrayBuffer') {
+      if (responseType === 'arrayBuffer') {
         requestConfig.dataType = 'arraybuffer';
-      } else if (responseType === 'blob') {
-        requestConfig.responseType = 'blob';
       }
 
       if (isUpload) {
@@ -111,7 +107,9 @@ export function createUniAppAdapter(): RequestAdapter {
               done();
               resolve({
                 status: (res.statusCode as number) ?? 200,
-                data: res.data,
+                data: typeof res.data === 'string' && responseType !== 'text'
+                  ? (() => { try { return JSON.parse(res.data); } catch { return res.data; } })()
+                  : res.data,
                 headers: (res.header as Record<string, string>) || {},
               });
             })
