@@ -98,7 +98,7 @@ export interface EventHubOptions {
    */
   metaMode?: 'smart' | 'full' | 'lean' | 'simple';
   /**
-   * emit() 中 handler 抛错时的处理策略：
+   * emit() 中 handler 抛错时的处理策略（仅影响同步 emit，emitSerial 始终 failFast，emitAsync 始终 allSettled）：
    * - `'aggregate'` (默认)：收集全部错误，最后抛 AggregateError
    * - `'failFast'`：第一个错误立刻抛，停止后续 handler
    * - `'silent'`：忽略所有 handler 错误
@@ -307,8 +307,11 @@ export class EventHub<T = Record<string, unknown>> {
     if (!this.#emittingMeta) {
       this.#emitMeta('beforeListenerAdd', { event: pattern, handler: record.original }, { throwOnError: true });
     }
+    if (this.#maxListeners !== Infinity) {
+      const pending = this.listenerCount(pattern as keyof T & string) + 1;
+      if (pending > this.#maxListeners) this.#onMaxListenersExceeded(pattern, pending);
+    }
     this.#wildcardHandlers.push(wc);
-    this.#checkMaxListeners(pattern);
     if (!this.#emittingMeta) {
       this.#emitMeta('listenerAdded', { event: pattern });
     }
@@ -351,8 +354,11 @@ export class EventHub<T = Record<string, unknown>> {
     if (!this.#emittingMeta) {
       this.#emitMeta('beforeListenerAdd', { event: '*', handler: record.original }, { throwOnError: true });
     }
+    if (this.#maxListeners !== Infinity) {
+      const pending = this.listenerCount('*' as keyof T & string) + 1;
+      if (pending > this.#maxListeners) this.#onMaxListenersExceeded('*', pending);
+    }
     this.#anyHandlers.push(record);
-    this.#checkMaxListeners('*');
     if (!this.#emittingMeta) {
       this.#emitMeta('listenerAdded', { event: '*' });
     }
@@ -604,7 +610,10 @@ export class EventHub<T = Record<string, unknown>> {
       }
     } else {
       for (const [eventName, handlers] of this.#handlers) {
-        if (!META_EVENT_NAMES.has(eventName) && handlers.length > 0) {
+        if (META_EVENT_NAMES.has(eventName)) {
+          // Cancel timers for meta handlers, but don't emit meta events for them
+          for (const record of handlers) this.#cancelHandler(record);
+        } else if (handlers.length > 0) {
           this.#removeAllHandlers(eventName, handlers);
         }
       }
@@ -652,7 +661,7 @@ export class EventHub<T = Record<string, unknown>> {
 
   waitFor<K extends keyof T & string>(
     event: K,
-    opts?: { signal?: AbortSignal; timeout?: number },
+    opts?: { signal?: AbortSignal; timeout?: number; filter?: (payload: T[K]) => boolean },
   ): Promise<T[K]> {
     return this.once(event, opts);
   }
@@ -807,6 +816,8 @@ export class EventHub<T = Record<string, unknown>> {
       for (const wh of this.#wildcardHandlers) {
         if (wh.regex.test(event)) return true;
       }
+      // any-handlers are counted here (emit would call them) even though
+      // listeners(event) cannot return them due to signature mismatch.
       return this.#anyHandlers.length > 0;
     }
     if (this.#anyHandlers.length > 0 || this.#wildcardHandlers.length > 0) return true;
@@ -1104,8 +1115,15 @@ export class EventHub<T = Record<string, unknown>> {
     if (!this.#emittingMeta) {
       this.#emitMeta('beforeListenerAdd', { event, handler: record.original }, { throwOnError: true });
     }
+    // Check max listeners BEFORE push — if maxListenersAction is 'throw',
+    // the error propagates before the handler is in the list (no orphan).
+    if (this.#maxListeners !== Infinity) {
+      const pending = this.listenerCount(event as keyof T & string) + 1;
+      if (pending > this.#maxListeners) {
+        this.#onMaxListenersExceeded(event, pending);
+      }
+    }
     pos === 'unshift' ? list.unshift(record) : list.push(record);
-    this.#checkMaxListeners(event);
     if (!this.#emittingMeta) {
       this.#emitMeta('listenerAdded', { event });
     }
@@ -1135,12 +1153,6 @@ export class EventHub<T = Record<string, unknown>> {
 
   #checkDestroyed(): void {
     if (this.#destroyed) throw new Error('[@nimble-api/eventhub] Instance is destroyed');
-  }
-
-  #checkMaxListeners(event: string): void {
-    if (this.#maxListeners === Infinity) return;
-    const count = this.listenerCount(event as keyof T & string);
-    this.#onMaxListenersExceeded(event, count);
   }
 
   #emitMeta<K extends keyof MetaEventPayloads>(

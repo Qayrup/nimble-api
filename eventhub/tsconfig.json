@@ -2,7 +2,8 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "tsBuildInfoFile": ".tsbuildinfo"
+    "tsBuildInfoFile": ".tsbuildinfo",
+    "lib": ["ES2022", "DOM", "ESNext.Disposable"]
   },
   "include": ["src"],
   "exclude": ["src/test"]
