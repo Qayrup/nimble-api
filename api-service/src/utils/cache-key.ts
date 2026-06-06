@@ -53,11 +53,12 @@ function fnv1a32(str: string): string {
 }
 
 function fnv1a64(str: string): string {
+  const mask = (BigInt(1) << BigInt(64)) - BigInt(1);
   let hash = BigInt('0xcbf29ce484222325');
   const prime = BigInt('0x100000001b3');
   for (let i = 0; i < str.length; i++) {
     hash ^= BigInt(str.charCodeAt(i));
-    hash *= prime;
+    hash = (hash * prime) & mask;
   }
   return hash.toString(16).padStart(16, '0');
 }

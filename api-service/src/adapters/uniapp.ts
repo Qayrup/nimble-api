@@ -20,6 +20,10 @@ function getUni(): UniAPI | undefined {
   return uni;
 }
 
+export function resetUniAppCache(): void {
+  _uniCache = undefined;
+}
+
 export function createUniAppAdapter(): RequestAdapter {
   return {
     request(config: AdapterRequestConfig): Promise<AdapterResponse> {

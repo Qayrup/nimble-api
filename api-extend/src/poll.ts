@@ -40,7 +40,7 @@ export function poll<T>(
 
       attempts++;
       if (attempts > maxAttempts) {
-        reject(new PollTimeoutError(maxAttempts, interval));
+        reject(new PollTimeoutError(attempts - 1, interval));
         return;
       }
 

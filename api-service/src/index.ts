@@ -4,7 +4,7 @@ import type { ApiOptions } from './core/types';
 export { ApiClient } from './client';
 export { MemoryCache } from './core/cache';
 export { createFetchAdapter } from './adapters/fetch';
-export { createUniAppAdapter } from './adapters/uniapp';
+export { createUniAppAdapter, resetUniAppCache } from './adapters/uniapp';
 export { createXhrAdapter } from './adapters/xhr';
 export { createTypedApi } from './typed';
 export type { TypedApi } from './typed';
