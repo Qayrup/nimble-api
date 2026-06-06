@@ -400,6 +400,7 @@ describe('EventHub core', () => {
       const removed = vi.fn();
       hub.on('listenerAdded' as keyof TestEvents & string, added as never);
       hub.on('listenerRemoved' as keyof TestEvents & string, removed as never);
+
       const unsub = hub.onAny(vi.fn());
       expect(added).toHaveBeenCalledWith({ event: '*' });
 
@@ -449,7 +450,7 @@ describe('EventHub core', () => {
       const handler = vi.fn();
       hub.onPattern('order:???????', handler);
       hub.emit('order:created', { orderId: 'x', amount: 1 });
-      hub.emit('order:created', { orderId: 'y', amount: 2 });
+      hub.emit("order:created", { orderId: 'y', amount: 2 });
       expect(handler).toHaveBeenCalledTimes(2);
     });
 
