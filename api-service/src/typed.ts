@@ -4,7 +4,7 @@ import type { EndpointSpec, RequestOptions } from './core/types';
 type EndpointSpecs = Record<string, EndpointSpec<any, any>>;
 
 type HasSuppression<T> = T extends { debounce: number } ? true
-  : T extends { throttle: number } ? true
+  : T extends { throttle: number | { wait: number } } ? true
   : T extends { lock: boolean } ? true
   : false;
 
@@ -25,6 +25,9 @@ interface DebounceState {
 
 interface ThrottleState {
   lastTime: number;
+  trailing?: ReturnType<typeof setTimeout>;
+  /** Last args for trailing-edge execution */
+  lastArgs?: Record<string, unknown>;
 }
 
 export function createTypedApi<T extends EndpointSpecs>(
@@ -84,8 +87,16 @@ export function createTypedApi<T extends EndpointSpecs>(
 
     api[name] = ((reqOpts?: Record<string, unknown>) => {
       const effectiveDebounce = (reqOpts?.debounce as number | false | undefined) ?? spec.debounce;
-      const effectiveThrottle = (reqOpts?.throttle as number | false | undefined) ?? spec.throttle;
+      const rawThrottle = (reqOpts?.throttle as number | false | { wait: number; edge?: string } | undefined) ?? spec.throttle;
       const effectiveLock = (reqOpts?.lock as boolean | undefined) ?? spec.lock;
+
+      // Normalize throttle to { wait, edge }
+      const isThrottleObj = typeof rawThrottle === 'object' && rawThrottle !== null;
+      const throttleWait = isThrottleObj ? (rawThrottle as { wait: number }).wait
+        : (typeof rawThrottle === 'number' ? rawThrottle : 0);
+      const throttleEdge: 'leading' | 'trailing' | 'both' =
+        isThrottleObj ? (((rawThrottle as { edge?: string }).edge as 'leading' | 'trailing' | 'both' | undefined) ?? 'leading')
+          : 'leading';
 
       const execute = effectiveLock
         ? (opts?: Record<string, unknown>) => {
@@ -115,11 +126,43 @@ export function createTypedApi<T extends EndpointSpecs>(
         });
       }
 
-      if (effectiveThrottle) {
+      if (throttleWait > 0) {
         const st = throttleStates.get(name) ?? { lastTime: 0 };
         throttleStates.set(name, st);
-        if (Date.now() - st.lastTime < effectiveThrottle) return Promise.resolve(null);
-        st.lastTime = Date.now();
+        const now = Date.now();
+        const elapsed = now - st.lastTime;
+
+        if (elapsed < throttleWait) {
+          // Within throttle window
+          if (throttleEdge === 'trailing' || throttleEdge === 'both') {
+            st.lastArgs = reqOpts;
+            if (throttleEdge === 'trailing' && st.trailing === undefined) {
+              // trailing-only: defer first call
+              st.trailing = setTimeout(() => {
+                st.trailing = undefined;
+                st.lastArgs = undefined;
+                st.lastTime = Date.now();
+                execute(reqOpts);
+              }, throttleWait - elapsed);
+            } else if (throttleEdge === 'both' && st.trailing === undefined) {
+              st.trailing = setTimeout(() => {
+                st.trailing = undefined;
+                const args = st.lastArgs ?? reqOpts;
+                st.lastArgs = undefined;
+                st.lastTime = Date.now();
+                execute(args);
+              }, throttleWait - elapsed);
+            }
+          }
+          return Promise.resolve(null);
+        }
+
+        // Outside throttle window — clear trailing timer
+        if (st.trailing !== undefined) {
+          clearTimeout(st.trailing);
+          st.trailing = undefined;
+        }
+        st.lastTime = now;
         return execute(reqOpts);
       }
 

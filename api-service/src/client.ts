@@ -46,6 +46,7 @@ const DEFAULT_OPTIONS: NormalizedRequestOptions = {
   onDownloadProgress: null,
   totalTimeout: null,
   maxContentLength: null,
+  dedup: true,
 };
 
 export class ApiClient {
@@ -170,12 +171,14 @@ export class ApiClient {
     }
 
     // CSRF
-    const xsrfCookie = this.#options.xsrfCookieName ?? 'XSRF-TOKEN';
-    const xsrfHeader = this.#options.xsrfHeaderName ?? 'X-XSRF-TOKEN';
-    const xsrfToken = readCookie(xsrfCookie);
-    const hasXsrf = Object.keys(headers).some(k => k.toLowerCase() === xsrfHeader.toLowerCase());
-    if (xsrfToken && !hasXsrf) {
-      headers[xsrfHeader] = xsrfToken;
+    if (this.#options.xsrf !== false) {
+      const xsrfCookie = this.#options.xsrfCookieName ?? 'XSRF-TOKEN';
+      const xsrfHeader = this.#options.xsrfHeaderName ?? 'X-XSRF-TOKEN';
+      const xsrfToken = readCookie(xsrfCookie);
+      const hasXsrf = Object.keys(headers).some(k => k.toLowerCase() === xsrfHeader.toLowerCase());
+      if (xsrfToken && !hasXsrf) {
+        headers[xsrfHeader] = xsrfToken;
+      }
     }
 
     const cacheKey = normalized.cache.ttl > 0
@@ -285,8 +288,8 @@ export class ApiClient {
 
     const url = state.request.url;
     const method = state.request.method;
-    // Skip dedup for non-serializable bodies (FormData, Blob, File)
-    const skipDedup = state.request.body instanceof FormData || state.request.body instanceof Blob;
+    // Skip dedup for non-serializable bodies (FormData, Blob, File) or when opted out
+    const skipDedup = !state.options.dedup || state.request.body instanceof FormData || state.request.body instanceof Blob;
     const bodyHash = !skipDedup && state.request.body ? JSON.stringify(stableNormalize(state.request.body)) : '';
     const dedupKey = skipDedup ? '' : `${method}:${url}:${bodyHash}`;
 
@@ -310,7 +313,11 @@ export class ApiClient {
         if (stale) {
           state.cache = { key: cacheKey, hit: true, stale: true };
           // Return stale, revalidate in background — failures are silent
-          this.#doFetch(state, cacheKey, cacheTags).catch(() => {});
+          this.#doFetch(state, cacheKey, cacheTags).catch((err: unknown) => {
+            if (this.#options.onSwrError && err instanceof ApiError) {
+              this.#options.onSwrError(err, cacheKey);
+            }
+          });
           return stale.data as T;
         }
       } else if (cacheMode === 'ttl') {
@@ -464,6 +471,7 @@ export class ApiClient {
       onDownloadProgress: opts.onDownloadProgress ?? null,
       totalTimeout: opts.totalTimeout ?? this.#options.totalTimeout ?? DEFAULT_OPTIONS.totalTimeout,
       maxContentLength: opts.maxContentLength ?? this.#options.maxContentLength ?? DEFAULT_OPTIONS.maxContentLength,
+      dedup: opts.dedup ?? DEFAULT_OPTIONS.dedup,
     };
   }
 
@@ -533,7 +541,10 @@ export class ApiClient {
     // onSuccess — only fire on actual success, not when error is set
     if (!state.error && status != null && state.options.validateStatus(status) && state.options.onSuccess.length > 0) {
       for (const key of state.options.onSuccess) {
-        try { hub.emit(key, data); } catch { /* event errors are non-critical */ }
+        try { hub.emit(key, data); } catch (err: unknown) {
+          if (this.#options.onEventError) this.#options.onEventError(key, err);
+          else console.warn(`[@nimble-api/api-service] Event handler threw for "${key}"`, err);
+        }
       }
     }
 
@@ -544,7 +555,10 @@ export class ApiClient {
         : undefined;
       const eventKey = (code != null ? state.options.onError[code as number] : undefined) ?? state.options.onError.default;
       if (eventKey) {
-        try { hub.emit(eventKey, state.error.data); } catch { /* event errors are non-critical */ }
+        try { hub.emit(eventKey, state.error.data); } catch (err: unknown) {
+          if (this.#options.onEventError) this.#options.onEventError(eventKey, err);
+          else console.warn(`[@nimble-api/api-service] Event handler threw for "${eventKey}"`, err);
+        }
       }
     }
   }

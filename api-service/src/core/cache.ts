@@ -112,11 +112,16 @@ export class MemoryCache {
       this.#removeEntry(key, entry);
       return false;
     }
-    // Bump LRU + lastAccess
+    return true;
+  }
+
+  /** Bump LRU position and update lastAccess — use when you want to mark a key as "recently used" without reading it. */
+  touch(key: string): void {
+    const entry = this.#store.get(key);
+    if (!entry) return;
     this.#store.delete(key);
     entry.lastAccess = Date.now();
     this.#store.set(key, entry);
-    return true;
   }
 
   clear(): void {

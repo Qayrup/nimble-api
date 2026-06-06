@@ -122,8 +122,10 @@ export interface RequestOptions {
   lock?: boolean;
   /** Override per-call — debounce in ms, false to disable endpoint default */
   debounce?: number | false;
-  /** Override per-call — throttle in ms, false to disable endpoint default */
-  throttle?: number | false;
+  /** Override per-call — throttle in ms, or `{ wait, edge }` for edge control. `false` to disable endpoint default */
+  throttle?: number | false | { wait: number; edge?: 'leading' | 'trailing' | 'both' };
+  /** Skip in-flight request deduplication for this call */
+  dedup?: boolean;
 }
 
 // === Normalized Options (internal, all defaults filled) ===
@@ -150,6 +152,7 @@ export interface NormalizedRequestOptions {
   onDownloadProgress: ((progress: { loaded: number; total: number }) => void) | null;
   totalTimeout: number | null;
   maxContentLength: number | null;
+  dedup: boolean;
 }
 
 // === Client Options ===
@@ -169,6 +172,12 @@ export interface ApiOptions {
   maxContentLength?: number;
   xsrfCookieName?: string;
   xsrfHeaderName?: string;
+  /** Set to false to disable automatic XSRF cookie-to-header injection. Default true. */
+  xsrf?: boolean;
+  /** Called when a stale-while-revalidate background refresh fails. */
+  onSwrError?: (error: ApiError, key: string) => void;
+  /** Called when an eventHub emit throws (e.g., handler bug). Default logs console.warn. */
+  onEventError?: (event: string, error: unknown) => void;
 }
 
 // === Adapter ===
@@ -267,8 +276,8 @@ export interface EndpointSpec<
   lock?: boolean;
   /** Debounce in ms — cancels previous unsettled call and starts a new timer. Suppressed calls resolve to null. */
   debounce?: number;
-  /** Throttle in ms — subsequent calls within the window return null immediately. */
-  throttle?: number;
+  /** Throttle in ms, or `{ wait, edge }` for edge control. Suppressed calls return null. */
+  throttle?: number | { wait: number; edge?: 'leading' | 'trailing' | 'both' };
   cache?: RequestOptions['cache'];
   retry?: RequestOptions['retry'];
   schema?: SchemaValidator;
