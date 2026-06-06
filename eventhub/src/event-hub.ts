@@ -304,6 +304,7 @@ export class EventHub<T = Record<string, unknown>> {
     opts?: SubscribeOptions,
   ): Unsubscribe {
     this.#checkDestroyed();
+    if (n <= 0) throw new TypeError(`[@nimble-api/eventhub] many() n must be > 0, got ${n}`);
     if (typeof handler !== 'function') {
       throw new TypeError(`[@nimble-api/eventhub] Handler must be a function, got ${typeof handler}`);
     }

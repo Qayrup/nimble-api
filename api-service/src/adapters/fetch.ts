@@ -26,7 +26,7 @@ export function createFetchAdapter(timeout = 30000): RequestAdapter {
       }
 
       // GET/DELETE: attach body as query string
-      if (body && (method === 'GET' || method === 'DELETE')) {
+      if (body && (method === 'GET' || method === 'DELETE') && !(body instanceof FormData)) {
         const sp = new URLSearchParams();
         for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
           if (v != null) {
