@@ -13,12 +13,11 @@
 
 ### EventMap
 
-所有事件类型通过 `EventMap` 接口定义，K 为事件名，V 为载荷类型：
+所有事件类型通过泛型参数传入，K 为事件名，V 为载荷类型：
 
 ```ts
-import { type EventMap } from '@nimble-api/eventhub';
-
-interface MyEvents extends EventMap {
+// 直接定义事件映射接口，无需继承特定基类型
+interface MyEvents {
   'user:login': { userId: string; timestamp: number };
   'user:logout': { userId: string };
   'order:created': { orderId: string; amount: number };

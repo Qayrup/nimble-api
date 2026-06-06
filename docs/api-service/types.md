@@ -52,6 +52,9 @@ interface RequestOptions {
   totalTimeout?: number;
   paramsSerializer?: (params: Record<string, unknown>) => string;
   maxContentLength?: number;
+  lock?: boolean;
+  debounce?: number | false;
+  throttle?: number | false;
 }
 ```
 
@@ -102,6 +105,8 @@ interface AdapterRequestConfig {
   signal?: AbortSignal;
   timeout?: number;
   responseType?: 'json' | 'text' | 'blob' | 'arrayBuffer';
+  onUploadProgress?: (progress: { loaded: number; total: number }) => void;
+  onDownloadProgress?: (progress: { loaded: number; total: number }) => void;
 }
 ```
 
@@ -299,6 +304,8 @@ interface EndpointSpec<
   _params?: TParams;        // phantom field — 仅用于参数类型推断
   _response?: TResponse;    // phantom field — 仅用于返回值类型推断
   lock?: boolean;            // 并发锁，同端点同时只允许一个调用
+  debounce?: number;         // 防抖（ms），取消前一次未完成调用
+  throttle?: number;         // 节流（ms），窗口内后续调用返回 null
   cache?: RequestOptions['cache'];
   retry?: RequestOptions['retry'];
   schema?: SchemaValidator;
@@ -309,6 +316,7 @@ interface EndpointSpec<
   headers?: Record<string, string>;
   timeout?: number;
   responseType?: RequestOptions['responseType'];
+  validateStatus?: (status: number) => boolean;
 }
 ```
 
@@ -323,14 +331,17 @@ type TypedApi<T extends Record<string, EndpointSpec<any, any>>> = {
   [K in keyof T & string]: (
     ...args: ... // 根据 spec._params 自动推导 opts.params 类型
   ) => Promise<
-    T[K] extends { lock: true } ? T[K]['_response'] | null : T[K]['_response']
+    T[K] extends { debounce: number } | { throttle: number } | { lock: boolean }
+      ? T[K]['_response'] | null
+      : T[K]['_response']
   >
 };
 ```
 
 - 不带 `_params` 的端点 → `(opts?)` 参数完全可选
 - 带 `_params` 的端点 → `(opts: { params: TParams })` 要求传入 params
-- `lock: true` → 返回值联合 `| null`（并发时返回 null）
+- 配置了 `lock` / `debounce` / `throttle` → 返回值联合 `| null`（被抑制的调用返回 null）
+- 调用时可通过 `debounce: false` / `throttle: false` 覆盖端点默认值
 
 ### `createTypedApi(client, endpoints)`
 

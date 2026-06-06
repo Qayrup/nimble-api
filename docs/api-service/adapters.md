@@ -17,6 +17,8 @@ interface AdapterRequestConfig {
   signal?: AbortSignal;
   timeout?: number;
   responseType?: 'json' | 'text' | 'blob' | 'arrayBuffer';
+  onUploadProgress?: (progress: { loaded: number; total: number }) => void;
+  onDownloadProgress?: (progress: { loaded: number; total: number }) => void;
 }
 
 interface AdapterResponse {

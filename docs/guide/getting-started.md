@@ -127,13 +127,34 @@ const api = createTypedApi(client, {
     lock: true,
     _response: {} as { token: string },
   } satisfies EndpointSpec,
+
+  // debounce: 搜索防抖，300ms 内连续输入只发最后一次请求
+  searchUsers: {
+    url: '/users/search',
+    method: 'GET',
+    debounce: 300,
+    _params: {} as { q: string },
+    _response: {} as { id: string; name: string }[],
+  } satisfies EndpointSpec,
+
+  // throttle: 上报节流，1s 内最多一次
+  reportView: {
+    url: '/analytics/view',
+    method: 'POST',
+    throttle: 1000,
+    _response: {} as void,
+  } satisfies EndpointSpec,
 });
 
 // 完全类型推导 — id 必填，返回值类型自动推断
 const user = await api.getUser({ params: { id: '1' } });
 // user: { id: string; name: string }
 
-// lock 端点返回值自动加 | null
+// lock/debounce/throttle 端点返回值自动加 | null
 const token = await api.refreshToken();
 // token: { token: string } | null
+
+// 调用时覆盖 — 禁用端点默认的防抖
+const results = await api.searchUsers({ params: { q: 'nimble' }, debounce: false });
+// results: { id: string; name: string }[] — 不再 | null
 ```

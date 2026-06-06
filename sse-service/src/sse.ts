@@ -196,7 +196,7 @@ class SSEConnectionImpl implements SSEConnection {
     const interval = (cfg && typeof cfg === 'object' ? cfg.interval : undefined) ?? 3000;
 
     this.#reconnectAttempts++;
-    if (this.#reconnectAttempts > maxAttempts) {
+    if (this.#reconnectAttempts >= maxAttempts) {
       this.#notifyError(new Error('SSE max reconnect attempts exceeded'));
       return;
     }

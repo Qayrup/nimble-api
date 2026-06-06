@@ -34,12 +34,14 @@ if (result && !result.stale) {
 }
 ```
 
-### `set(key, value, ttl, tags?)`
+### `set(key, value, staleTime, tags?, gcTime?)`
 
-设置缓存，支持标签。超出 maxSize 时自动淘汰 LRU 条目。
+设置缓存，支持标签和垃圾回收时间。超出 maxSize 时自动淘汰 LRU 条目。
 
 ```ts
 cache.set('key-1', { name: 'Alice' }, 30000, ['users', 'profile']);
+// 带 gcTime — 条目 5 分钟内未被访问则惰性删除
+cache.set('key-2', { name: 'Bob' }, 60000, ['users'], 300000);
 ```
 
 ### `delete(key)` / `has(key)` / `clear()`

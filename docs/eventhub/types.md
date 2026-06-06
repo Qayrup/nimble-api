@@ -1,21 +1,20 @@
 # EventHub 类型定义
 
-## `EventMap`
+## 泛型参数
 
-基础映射类型，所有自定义事件映射需 extend 此类型。
-
-```ts
-export type EventMap = Record<string, unknown>;
-```
-
-使用示例：
+`EventHub<T>` 接受一个事件映射类型作为泛型参数，默认为 `Record<string, unknown>`：
 
 ```ts
-interface MyEvents extends EventMap {
+// T 默认为 Record<string, unknown>，所有事件名和载荷均可自由定义
+const hub = createEventHub();
+
+// 显式传入事件映射以获得类型安全
+interface MyEvents {
   'user:login': { userId: string };
   'user:logout': { userId: string };
   'order:created': { orderId: string; amount: number };
 }
+const typedHub = createEventHub<MyEvents>();
 ```
 
 ---
@@ -87,7 +86,7 @@ export interface SubscribeOptions {
 | `debounce` | `number?` | 防抖（ms），handler 在事件流静默指定时长后才触发 |
 | `throttle` | `number?` | 节流（ms），handler 最多每隔指定时长触发一次（leading edge） |
 
-> 同时设置 `debounce` 和 `throttle` 时，`throttle` 优先生效。`prependListener` 不支持 debounce/throttle 包装。
+> 同时设置 `debounce` 和 `throttle` 时，`throttle` 优先生效。
 
 ---
 

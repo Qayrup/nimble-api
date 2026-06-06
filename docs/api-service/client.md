@@ -62,6 +62,9 @@ api.options<T>('/users/{id}', opts?)
 | `onError` | `{ default: string; [code: number]: string }` | 失败时发射的事件 |
 | `entities` | `EntityDef[]` | 从响应提取的实体标签 |
 | `invalidates` | `string[]` | 请求成功后失效的缓存标签 |
+| `lock` | `boolean` | 并发锁，true 时同一端点同时只允许一个请求 |
+| `debounce` | `number \| false` | 防抖（ms），取消前一次未完成调用；false 禁用端点默认值 |
+| `throttle` | `number \| false` | 节流（ms），窗口内后续调用返回 null；false 禁用端点默认值 |
 
 ## CSRF 保护
 
@@ -233,6 +236,24 @@ const endpoints = {
     lock: true,
     _response: {} as { token: string },
   } satisfies EndpointSpec,
+
+  // 防抖搜索 — 快速连续输入时取消上一次请求，只执行最后一次
+  searchUsers: {
+    url: '/users/search',
+    params: { q: '' },
+    method: 'GET',
+    debounce: 300,
+    _params: {} as { q: string },
+    _response: {} as { id: string; name: string }[],
+  } satisfies EndpointSpec,
+
+  // 节流上报 — 1s 内最多上报一次
+  reportView: {
+    url: '/analytics/view',
+    method: 'POST',
+    throttle: 1000,
+    _response: {} as void,
+  } satisfies EndpointSpec,
 };
 
 const api = createTypedApi(client, endpoints);
@@ -244,6 +265,14 @@ const user = await api.getUser({ params: { id: '1' } });
 // 带锁的端点 — 返回值类型自动加 | null
 const token = await api.refreshToken();
 // token: { token: string } | null
+
+// 防抖端点 — 返回值类型自动加 | null
+const results = await api.searchUsers({ params: { q: 'nimble' } });
+// results: { id: string; name: string }[] | null
+
+// 调用时覆盖 — 禁用端点默认的防抖
+const immediate = await api.searchUsers({ params: { q: 'nimble' }, debounce: false });
+// immediate: { id: string; name: string }[] — 不再 | null
 ```
 
 `EndpointSpec` 上可覆盖的方法级配置（与 `RequestOptions` 合并优先级为 spec > options）：
@@ -253,10 +282,12 @@ const token = await api.refreshToken();
 | `url` | 端点 URL，支持 `{param}` 模板 |
 | `method` | HTTP 方法，默认 GET |
 | `lock` | 并发锁，同端点任一时刻只允许一个请求运行 |
+| `debounce` | 防抖（ms），取消前一次未完成调用，被取消的调用返回 null |
+| `throttle` | 节流（ms），窗口内后续调用直接返回 null |
 | `cache` / `retry` / `schema` | 覆盖全局配置 |
 | `onSuccess` / `onError` | 请求级事件 |
 | `entities` / `invalidates` | 缓存标签 |
-| `headers` / `timeout` / `responseType` | 请求级覆盖 |
+| `headers` / `timeout` / `responseType` / `validateStatus` | 请求级覆盖 |
 
 ## 事件派发
 

@@ -5,7 +5,7 @@
 ```ts
 const DEFAULT_RETRY = {
   limit: 2,                     // 最多重试 2 次
-  methods: ['GET', 'PUT', 'HEAD', 'DELETE', 'OPTIONS', 'TRACE'],
+  methods: ['GET', 'PUT', 'HEAD', 'DELETE', 'OPTIONS'],
   statusCodes: [408, 413, 429, 500, 502, 503, 504],
   backoff: 'exponential',       // 退避策略
   baseDelay: 1000,              // 基准延迟（ms）

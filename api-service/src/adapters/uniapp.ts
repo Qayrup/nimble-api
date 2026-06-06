@@ -26,7 +26,17 @@ export function createUniAppAdapter(): RequestAdapter {
       const uni = getUni();
       if (!uni) throw new Error('UniApp environment not available');
 
-      const { url, method, headers, body, timeout, signal, responseType, onUploadProgress } = config;
+      let { url, method, headers, body, timeout, signal, responseType, onUploadProgress } = config;
+
+      if (body && (method === 'GET' || method === 'DELETE') && !(body instanceof FormData)) {
+        const sp = new URLSearchParams();
+        for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
+          if (v != null) sp.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
+        }
+        const qs = sp.toString();
+        if (qs) url = url + (url.includes('?') ? '&' : '?') + qs;
+        body = undefined;
+      }
 
       const isUpload = method === 'UPLOAD';
       const requestConfig: Record<string, unknown> = {
@@ -41,6 +51,8 @@ export function createUniAppAdapter(): RequestAdapter {
         requestConfig.responseType = 'text';
       } else if (responseType === 'arrayBuffer') {
         requestConfig.dataType = 'arraybuffer';
+      } else if (responseType === 'blob') {
+        requestConfig.responseType = 'blob';
       }
 
       if (isUpload) {

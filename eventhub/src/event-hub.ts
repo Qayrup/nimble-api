@@ -614,7 +614,7 @@ export class EventHub<T = Record<string, unknown>> {
         for (const rec of handlers) result.push(rec.original);
       }
       for (const wh of this.#wildcardHandlers) {
-        if (wh.regex.test(event)) result.push(wh.record.raw);
+        if (wh.regex.test(event)) result.push(wh.record.original);
       }
       return result as ((payload: T[K]) => void)[];
     }

@@ -167,25 +167,26 @@ describe('Cache', () => {
 
 describe('CacheControl', () => {
   it('invalidates by tags', async () => {
+    let callCount = 0;
     const adapter: RequestAdapter = {
       async request(config) {
+        callCount++;
         return { status: 200, data: { url: config.url }, headers: {} };
       },
     };
     const client = makeClient(adapter, { cache: { ttl: 60000 } });
 
     await client.get('/api/user/1', { cache: { tags: ['user'] } });
-    await client.get('/api/user/2', { cache: { tags: ['user'] } });
+    expect(callCount).toBe(1);
 
+    // Second call should be cached
+    await client.get('/api/user/1', { cache: { tags: ['user'] } });
+    expect(callCount).toBe(1);
+
+    // Invalidate — next call re-fetches
     client.cache.invalidate({ tags: ['user'] });
-
-    // After invalidation, should fetch again
-    const callCount = vi.fn();
-    const adapter2: RequestAdapter = {
-      async request() { callCount(); return { status: 200, data: {}, headers: {} }; },
-    };
-    createApiClient({ adapter: adapter2 });
-    // Can't easily verify without sharing cache... skip this specific assertion
+    await client.get('/api/user/1', { cache: { tags: ['user'] } });
+    expect(callCount).toBe(2);
   });
 
   it('clears all cache', () => {

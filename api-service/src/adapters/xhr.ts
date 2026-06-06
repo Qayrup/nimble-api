@@ -6,7 +6,19 @@ export function createXhrAdapter(timeout = 30000): RequestAdapter {
     request(config: AdapterRequestConfig): Promise<AdapterResponse> {
       return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open(config.method, config.url, true);
+        let reqUrl = config.url;
+        let reqBody = config.body;
+        if (reqBody && (config.method === 'GET' || config.method === 'DELETE') && !(reqBody instanceof FormData)) {
+          const sp = new URLSearchParams();
+          for (const [k, v] of Object.entries(reqBody as Record<string, unknown>)) {
+            if (v != null) sp.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
+          }
+          const qs = sp.toString();
+          if (qs) reqUrl = reqUrl + (reqUrl.includes('?') ? '&' : '?') + qs;
+          reqBody = undefined;
+        }
+
+        xhr.open(config.method, reqUrl, true);
 
         // Headers
         if (config.headers) {
@@ -108,20 +120,30 @@ export function createXhrAdapter(timeout = 30000): RequestAdapter {
 
         xhr.onerror = () => {
           cleanupSignal();
-          reject(new Error(`[@nimble-api/api-service] XHR network error for ${config.method} ${config.url}`));
+          reject(new ApiError(`XHR network error for ${config.method} ${config.url}`, {
+            code: 'ERR_NETWORK',
+            status: 0,
+            data: null,
+            request: { url: config.url, method: config.method },
+          }));
         };
 
         xhr.ontimeout = () => {
           cleanupSignal();
-          reject(new Error(`[@nimble-api/api-service] XHR timeout for ${config.method} ${config.url}`));
+          reject(new ApiError(`XHR timeout for ${config.method} ${config.url}`, {
+            code: 'ERR_TIMEOUT',
+            status: 0,
+            data: null,
+            request: { url: config.url, method: config.method },
+          }));
         };
 
         // Body
-        if (config.body != null && config.method !== 'GET' && config.method !== 'DELETE') {
-          if (config.body instanceof FormData) {
-            xhr.send(config.body);
+        if (reqBody != null && config.method !== 'GET' && config.method !== 'DELETE') {
+          if (reqBody instanceof FormData) {
+            xhr.send(reqBody);
           } else {
-            xhr.send(typeof config.body === 'string' ? config.body : JSON.stringify(config.body));
+            xhr.send(typeof reqBody === 'string' ? reqBody : JSON.stringify(reqBody));
           }
         } else {
           xhr.send();

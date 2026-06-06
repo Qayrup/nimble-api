@@ -62,7 +62,7 @@ hub.emit('user:login', { userId: 'u1' });
 // 输出：先执行 → 后注册
 ```
 
-> 注意：`prependListener` 不支持 debounce/throttle 包装，handler 以原始形式注册。
+> `prependListener` 完全支持 `debounce` 和 `throttle` 选项，与 `on()` 行为一致。
 
 ---
 

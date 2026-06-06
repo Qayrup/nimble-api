@@ -173,7 +173,8 @@ export class ApiClient {
     const xsrfCookie = this.#options.xsrfCookieName ?? 'XSRF-TOKEN';
     const xsrfHeader = this.#options.xsrfHeaderName ?? 'X-XSRF-TOKEN';
     const xsrfToken = readCookie(xsrfCookie);
-    if (xsrfToken && !headers[xsrfHeader.toLowerCase()]) {
+    const hasXsrf = Object.keys(headers).some(k => k.toLowerCase() === xsrfHeader.toLowerCase());
+    if (xsrfToken && !hasXsrf) {
       headers[xsrfHeader] = xsrfToken;
     }
 
@@ -502,10 +503,10 @@ export class ApiClient {
   }
 
   #extractEntities(entities: Array<{ name: string; idKey?: string }>, data: unknown): void {
-    const payload =
-      (data as Record<string, unknown>)?.data && typeof (data as Record<string, unknown>).data === 'object'
-        ? (data as Record<string, unknown>).data
-        : data;
+    const envelope = data as Record<string, unknown>;
+    const payload = envelope?.data != null && typeof envelope.data === 'object'
+      ? envelope.data
+      : data;
     const items = Array.isArray(payload) ? payload : [payload];
     for (const entity of entities) {
       const idKey = entity.idKey ?? 'id';
