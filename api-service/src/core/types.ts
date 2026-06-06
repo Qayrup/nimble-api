@@ -17,6 +17,8 @@ export interface SchemaValidator {
 export interface EntityDef {
   name: string;
   idKey?: string;
+  /** Response envelope key containing the entity array. Default `'data'`. */
+  envelopeKey?: string;
 }
 
 // === Retry ===
@@ -115,6 +117,7 @@ export interface RequestOptions {
   validateStatus?: (status: number) => boolean;
   onUploadProgress?: (progress: { loaded: number; total: number }) => void;
   onDownloadProgress?: (progress: { loaded: number; total: number }) => void;
+  uploadFieldName?: string;
   totalTimeout?: number;
   paramsSerializer?: (params: Record<string, unknown>) => string;
   maxContentLength?: number;
@@ -150,6 +153,7 @@ export interface NormalizedRequestOptions {
   validateStatus: (status: number) => boolean;
   onUploadProgress: ((progress: { loaded: number; total: number }) => void) | null;
   onDownloadProgress: ((progress: { loaded: number; total: number }) => void) | null;
+  uploadFieldName: string | null;
   totalTimeout: number | null;
   maxContentLength: number | null;
   dedup: boolean;
@@ -196,6 +200,8 @@ export interface AdapterRequestConfig {
   responseType?: 'json' | 'text' | 'blob' | 'arrayBuffer';
   onUploadProgress?: (progress: { loaded: number; total: number }) => void;
   onDownloadProgress?: (progress: { loaded: number; total: number }) => void;
+  /** Form field name for file upload (UniApp adapter). Default `'file'`. */
+  uploadFieldName?: string;
 }
 
 export interface AdapterResponse {
@@ -236,8 +242,9 @@ export class ApiError extends Error {
     data: unknown;
     request: { url: string; method: string };
     response?: { status: number; headers: Record<string, string> };
+    cause?: unknown;
   }) {
-    super(message);
+    super(message, { cause: opts.cause });
     this.name = 'ApiError';
     this.code = opts.code ?? 'ERR_UNKNOWN';
     this.status = opts.status;
@@ -250,12 +257,13 @@ export class ApiError extends Error {
 export class NetworkError extends ApiError {
   name = 'NetworkError';
 
-  constructor(message: string, opts: { request: { url: string; method: string } }) {
+  constructor(message: string, opts: { request: { url: string; method: string }; cause?: unknown }) {
     super(message, {
       code: 'ERR_NETWORK',
       status: 0,
       data: null,
       request: opts.request,
+      cause: opts.cause,
     });
   }
 }

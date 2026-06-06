@@ -57,7 +57,7 @@ export function createUniAppAdapter(): RequestAdapter {
 
       if (isUpload) {
         requestConfig.filePath = (body as Record<string, unknown>)?.file;
-        requestConfig.name = 'file';
+        requestConfig.name = config.uploadFieldName ?? 'file';
 
         const task = uni.uploadFile(requestConfig);
         let onAbortUpload: (() => void) | undefined;

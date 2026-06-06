@@ -44,6 +44,7 @@ const DEFAULT_OPTIONS: NormalizedRequestOptions = {
   validateStatus: (status: number) => status >= 200 && status < 300,
   onUploadProgress: null,
   onDownloadProgress: null,
+  uploadFieldName: null,
   totalTimeout: null,
   maxContentLength: null,
   dedup: true,
@@ -227,7 +228,7 @@ export class ApiClient {
       } catch (err) {
         const error = err instanceof ApiError ? err : new NetworkError(
           err instanceof Error ? err.message : String(err),
-          { request: state.request },
+          { request: state.request, cause: err },
         );
 
         state.error = error;
@@ -360,6 +361,7 @@ export class ApiClient {
       responseType: state.options.responseType,
       onUploadProgress: state.options.onUploadProgress ?? undefined,
       onDownloadProgress: state.options.onDownloadProgress ?? undefined,
+      uploadFieldName: state.options.uploadFieldName ?? undefined,
     });
 
     state.response = {
@@ -469,6 +471,7 @@ export class ApiClient {
       validateStatus: opts.validateStatus ?? this.#options.validateStatus ?? DEFAULT_OPTIONS.validateStatus,
       onUploadProgress: opts.onUploadProgress ?? null,
       onDownloadProgress: opts.onDownloadProgress ?? null,
+      uploadFieldName: opts.uploadFieldName ?? null,
       totalTimeout: opts.totalTimeout ?? this.#options.totalTimeout ?? DEFAULT_OPTIONS.totalTimeout,
       maxContentLength: opts.maxContentLength ?? this.#options.maxContentLength ?? DEFAULT_OPTIONS.maxContentLength,
       dedup: opts.dedup ?? DEFAULT_OPTIONS.dedup,
@@ -512,10 +515,11 @@ export class ApiClient {
     return undefined;
   }
 
-  #extractEntities(entities: Array<{ name: string; idKey?: string }>, data: unknown): void {
+  #extractEntities(entities: Array<{ name: string; idKey?: string; envelopeKey?: string }>, data: unknown): void {
     const envelope = data as Record<string, unknown>;
-    const payload = envelope?.data != null && typeof envelope.data === 'object'
-      ? envelope.data
+    const envKey = entities[0]?.envelopeKey ?? 'data';
+    const payload = envelope?.[envKey] != null && typeof envelope[envKey] === 'object'
+      ? envelope[envKey]
       : data;
     const items = Array.isArray(payload) ? payload : [payload];
     for (const entity of entities) {

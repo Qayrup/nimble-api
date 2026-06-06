@@ -170,12 +170,12 @@ export class MemoryCache {
     return JSON.stringify({ entries, maxSize: this.#maxSize });
   }
 
-  importState(json: string): void {
+  importState(json: string): boolean {
     let parsed: unknown;
     try {
       parsed = JSON.parse(json);
     } catch {
-      return; // corrupted JSON, ignore silently
+      return false;
     }
 
     const state = parsed as {
@@ -191,7 +191,7 @@ export class MemoryCache {
       maxSize: number;
     };
 
-    if (!state || !Array.isArray(state.entries)) return;
+    if (!state || !Array.isArray(state.entries)) return false;
 
     this.clear();
     this.#maxSize = state.maxSize ?? Infinity;
@@ -216,6 +216,7 @@ export class MemoryCache {
         set.add(item.key);
       }
     }
+    return true;
   }
 
   get size(): number {
