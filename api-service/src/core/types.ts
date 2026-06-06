@@ -120,8 +120,8 @@ export interface RequestOptions {
   maxContentLength?: number;
   /** Override per-call — prevent concurrent calls */
   lock?: boolean;
-  /** Override per-call — debounce in ms, false to disable endpoint default */
-  debounce?: number | false;
+  /** Override per-call — debounce in ms, or `{ wait, abort }` to cancel in-flight. `false` to disable */
+  debounce?: number | false | { wait: number; abort?: boolean };
   /** Override per-call — throttle in ms, or `{ wait, edge }` for edge control. `false` to disable endpoint default */
   throttle?: number | false | { wait: number; edge?: 'leading' | 'trailing' | 'both' };
   /** Skip in-flight request deduplication for this call */
@@ -274,8 +274,8 @@ export interface EndpointSpec<
   _response?: TResponse;
   /** Prevent concurrent calls to this endpoint. While a call is in-flight, subsequent calls return null immediately. */
   lock?: boolean;
-  /** Debounce in ms — cancels previous unsettled call and starts a new timer. Suppressed calls resolve to null. */
-  debounce?: number;
+  /** Debounce in ms, or `{ wait, abort }`. `abort: true` cancels in-flight HTTP requests. Suppressed calls resolve to null. */
+  debounce?: number | { wait: number; abort?: boolean };
   /** Throttle in ms, or `{ wait, edge }` for edge control. Suppressed calls return null. */
   throttle?: number | { wait: number; edge?: 'leading' | 'trailing' | 'both' };
   cache?: RequestOptions['cache'];

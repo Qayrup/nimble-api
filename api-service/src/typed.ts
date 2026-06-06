@@ -3,7 +3,7 @@ import type { EndpointSpec, RequestOptions } from './core/types';
 
 type EndpointSpecs = Record<string, EndpointSpec<any, any>>;
 
-type HasSuppression<T> = T extends { debounce: number } ? true
+type HasSuppression<T> = T extends { debounce: number | { wait: number } } ? true
   : T extends { throttle: number | { wait: number } } ? true
   : T extends { lock: boolean } ? true
   : false;
@@ -18,9 +18,20 @@ export type TypedApi<T extends EndpointSpecs> = {
   ) => Promise<SuppressReturn<NonNullable<T[K]['_response']>, T[K]>>
 };
 
+function mergeSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
+  if ('any' in AbortSignal) return AbortSignal.any([a, b]);
+  const ctrl = new AbortController();
+  const fire = () => ctrl.abort();
+  a.addEventListener('abort', fire, { once: true });
+  b.addEventListener('abort', fire, { once: true });
+  if (a.aborted || b.aborted) ctrl.abort();
+  return ctrl.signal;
+}
+
 interface DebounceState {
   timer?: ReturnType<typeof setTimeout>;
   lastResolve: ((v: unknown) => void) | null;
+  controller?: AbortController;
 }
 
 interface ThrottleState {
@@ -86,7 +97,11 @@ export function createTypedApi<T extends EndpointSpecs>(
     };
 
     api[name] = ((reqOpts?: Record<string, unknown>) => {
-      const effectiveDebounce = (reqOpts?.debounce as number | false | undefined) ?? spec.debounce;
+      const rawDebounce = (reqOpts?.debounce as number | false | { wait: number; abort?: boolean } | undefined) ?? spec.debounce;
+      const isDebounceObj = typeof rawDebounce === 'object' && rawDebounce !== null;
+      const effectiveDebounce = isDebounceObj ? (rawDebounce as { wait: number }).wait
+        : (typeof rawDebounce === 'number' ? rawDebounce : 0);
+      const debounceAbort = isDebounceObj ? ((rawDebounce as { abort?: boolean }).abort ?? false) : false;
       const rawThrottle = (reqOpts?.throttle as number | false | { wait: number; edge?: string } | undefined) ?? spec.throttle;
       const effectiveLock = (reqOpts?.lock as boolean | undefined) ?? spec.lock;
 
@@ -112,16 +127,35 @@ export function createTypedApi<T extends EndpointSpecs>(
         if (st.timer !== undefined) {
           clearTimeout(st.timer);
           st.lastResolve?.(null);
+          // Abort in-flight HTTP request if configured
+          if (debounceAbort) st.controller?.abort();
         }
         return new Promise((resolve, reject) => {
           st.lastResolve = resolve as (v: unknown) => void;
           st.timer = setTimeout(() => {
             st.lastResolve = null;
             st.timer = undefined;
-            execute(reqOpts).then(
+
+            let controller: AbortController | undefined;
+            let mergedSignal: AbortSignal | undefined;
+            if (debounceAbort) {
+              controller = new AbortController();
+              st.controller = controller;
+              const userSignal = reqOpts?.signal as AbortSignal | undefined;
+              if (userSignal) {
+                mergedSignal = mergeSignals(controller.signal, userSignal);
+              } else {
+                mergedSignal = controller.signal;
+              }
+            }
+
+            execute(mergedSignal ? { ...reqOpts, signal: mergedSignal } : reqOpts).then(
               resolve as (v: unknown) => void,
               reject as (e: unknown) => void,
-            ).finally(() => { debounceStates.delete(name); });
+            ).finally(() => {
+              debounceStates.delete(name);
+              if (controller) st.controller = undefined;
+            });
           }, effectiveDebounce);
         });
       }
