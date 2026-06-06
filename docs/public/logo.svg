@@ -19,14 +19,14 @@
   </defs>
 
   <text x="500" y="170" text-anchor="middle" dominant-baseline="central"
-        font-family="system-ui, -apple-system, sans-serif" font-size="240" font-weight="900"
+        font-family="system-ui, -apple-system, sans-serif" font-size="180" font-weight="900"
         fill="url(#grad)" filter="url(#glow)"
         letter-spacing="4">
     nimble-api
   </text>
 
   <text x="500" y="170" text-anchor="middle" dominant-baseline="central"
-        font-family="system-ui, -apple-system, sans-serif" font-size="240" font-weight="900"
+        font-family="system-ui, -apple-system, sans-serif" font-size="180" font-weight="900"
         fill="url(#grad)" opacity="0.2"
         letter-spacing="4">
     <animate attributeName="opacity" values="0.15;0.4;0.15" dur="2s" repeatCount="indefinite" />
