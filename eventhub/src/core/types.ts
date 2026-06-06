@@ -11,11 +11,15 @@ export interface SubscribeOptions {
   debounce?: number;
   /** Throttle in ms — handler fires at most once per this duration (leading edge) */
   throttle?: number;
+  /** Throttle firing edge strategy. Default `'both'`. */
+  throttleEdge?: 'both' | 'leading' | 'trailing';
 }
 
 export type Unsubscribe = () => void;
 
 export interface MetaEventPayloads {
+  beforeListenerAdd: { event: string; handler: (...args: any[]) => void };
   listenerAdded: { event: string };
+  beforeListenerRemove: { event: string; handler?: (...args: any[]) => void };
   listenerRemoved: { event: string };
 }
