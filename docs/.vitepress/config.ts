@@ -4,6 +4,7 @@ export default defineConfig({
   lang: 'zh-CN',
   title: 'Nimble-API',
   description: '轻量级 TypeScript API 服务框架 — 事件驱动、可扩展、类型安全',
+  base: '/nimble-api/',
 
   head: [['link', { rel: 'icon', href: '/favicon.ico' }]],
 
@@ -58,7 +59,7 @@ export default defineConfig({
     ],
 
     editLink: {
-      pattern: 'https://github.com/qayrup/nimble-api-docs/edit/main/docs/:path',
+      pattern: 'https://github.com/qayrup/nimble-api/edit/master/docs/:path',
       text: '在 GitHub 上编辑此页',
     },
 

@@ -566,7 +566,7 @@ export class EventHub<T = Record<string, unknown>> {
               resolveNext({ value: payload, done: false });
               resolveNext = null;
             } else {
-              if (queue.length >= maxBuffer) {
+              if (maxBuffer > 0 && queue.length >= maxBuffer) {
                 queue.shift(); // drop oldest
               }
               queue.push(payload);

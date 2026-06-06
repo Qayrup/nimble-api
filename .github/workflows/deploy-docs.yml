@@ -1,0 +1,64 @@
+name: Deploy Docs
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/deploy-docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Build VitePress docs
+        run: npm run docs:build
+
+      # === GitHub Pages ===
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: docs/.vitepress/dist
+          publish_branch: gh-pages
+          cname: '' # 如有自定义域名在此填写
+
+      # === Gitee Pages ===
+      - name: Deploy to Gitee Pages
+        if: ${{ secrets.GITEE_TOKEN != '' }}
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          cd docs/.vitepress/dist
+          git init
+          git checkout -b pages
+          git add -A
+          git commit -m "docs: deploy to Gitee Pages [skip ci]"
+
+          git remote add gitee "https://oauth2:${GITEE_TOKEN}@gitee.com/qayrup/nimble-api.git"
+          git push -f gitee pages:pages
+
+          echo "Gitee Pages 已部署到 https://qayrup.gitee.io/nimble-api"

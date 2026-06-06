@@ -529,7 +529,7 @@ export class ApiClient {
     const status = state.response?.status;
 
     // onSuccess — only fire on actual success, not when error is set
-    if (!state.error && status != null && status >= 200 && status < 300 && state.options.onSuccess.length > 0) {
+    if (!state.error && status != null && state.options.validateStatus(status) && state.options.onSuccess.length > 0) {
       for (const key of state.options.onSuccess) {
         try { hub.emit(key, data); } catch { /* event errors are non-critical */ }
       }
