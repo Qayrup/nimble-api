@@ -24,6 +24,7 @@ export async function runBeforeRequest(
   return current;
 }
 
+// afterResponse hooks run in reverse registration order (onion/middleware unwind)
 export async function runAfterResponse(
   hooks: Hooks | undefined,
   state: RequestState,

@@ -18,6 +18,18 @@ import type {
 } from './core/types';
 import { ApiError } from './core/types';
 
+function mergeRetry(
+  perRequest: RequestOptions['retry'],
+  clientLevel: ApiOptions['retry'],
+): Required<NormalizedRequestOptions>['retry'] {
+  if (perRequest === false) return false;
+  if (perRequest != null) {
+    return { ...DEFAULT_RETRY, ...(clientLevel !== false ? clientLevel : {}), ...perRequest };
+  }
+  if (clientLevel === false) return false;
+  return { ...DEFAULT_RETRY, ...(clientLevel ?? {}) };
+}
+
 const DEFAULT_OPTIONS: NormalizedRequestOptions = {
   baseUrl: '',
   timeout: 30000,
@@ -429,13 +441,7 @@ export class ApiClient {
       baseUrl: this.#options.baseUrl ?? DEFAULT_OPTIONS.baseUrl,
       timeout: opts.timeout ?? this.#options.timeout ?? DEFAULT_OPTIONS.timeout,
       responseType: opts.responseType ?? DEFAULT_OPTIONS.responseType,
-      retry: opts.retry === false
-        ? false
-        : opts.retry
-          ? { ...DEFAULT_RETRY, ...(this.#options.retry !== false ? this.#options.retry : {}), ...opts.retry }
-          : this.#options.retry === false
-            ? false
-            : { ...DEFAULT_RETRY, ...(this.#options.retry ?? {}) },
+      retry: mergeRetry(opts.retry, this.#options.retry),
       cache: {
         ttl: reqCache?.ttl ?? clientCache?.ttl ?? DEFAULT_OPTIONS.cache.ttl,
         mode: reqCache?.mode ?? clientCache?.mode ?? DEFAULT_OPTIONS.cache.mode,

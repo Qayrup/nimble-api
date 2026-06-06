@@ -611,7 +611,7 @@ export class EventHub<T = Record<string, unknown>> {
       const result: AnyHandler[] = [];
       const handlers = this.#handlers.get(event);
       if (handlers) {
-        for (const rec of handlers) result.push(rec.raw);
+        for (const rec of handlers) result.push(rec.original);
       }
       for (const wh of this.#wildcardHandlers) {
         if (wh.regex.test(event)) result.push(wh.record.raw);
@@ -621,13 +621,13 @@ export class EventHub<T = Record<string, unknown>> {
 
     const result: AnyHandler[] = [];
     for (const handlers of this.#handlers.values()) {
-      for (const rec of handlers) result.push(rec.raw);
+      for (const rec of handlers) result.push(rec.original);
     }
     for (const wh of this.#wildcardHandlers) {
       result.push(wh.record.raw);
     }
     for (const rec of this.#anyHandlers) {
-      result.push(rec.raw);
+      result.push(rec.original);
     }
     return result as ((payload: T[K]) => void)[];
   }
@@ -706,6 +706,7 @@ export class EventHub<T = Record<string, unknown>> {
     this.#handlers.clear();
     this.#anyHandlers.length = 0;
     this.#wildcardHandlers.length = 0;
+    this.#warned.clear();
   }
 
   dispose(): void {
@@ -718,6 +719,7 @@ export class EventHub<T = Record<string, unknown>> {
     this.#handlers.clear();
     this.#anyHandlers.length = 0;
     this.#wildcardHandlers.length = 0;
+    this.#warned.clear();
   }
 
   [Symbol.dispose](): void {
