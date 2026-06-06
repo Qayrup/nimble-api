@@ -48,9 +48,12 @@ export function poll<T>(
       try {
         data = await fn();
       } catch (err) {
+        if (aborted) return;
         reject(err);
         return;
       }
+
+      if (aborted) return;
 
       if (stopIf?.(data)) {
         reject(new PollFailedError(data));

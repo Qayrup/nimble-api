@@ -2,6 +2,7 @@ export interface SSEEvent {
   event: string;
   data: unknown;
   id?: string;
+  explicitEvent: boolean;
 }
 
 export interface SSEReconnect {

@@ -124,20 +124,21 @@ class SSEConnectionImpl implements SSEConnection {
     let eventType = 'message';
     let dataLines: string[] = [];
     let id: string | undefined;
+    let explicitEvent = false;
 
     for (const rawLine of lines) {
       const line = rawLine.trimEnd();
 
       if (line === '') {
-        // Blank line → dispatch event
         if (dataLines.length > 0) {
           const raw = dataLines.join('\n');
           const data = this.#parseData(raw);
-          const evt: SSEEvent = { event: eventType, data, id };
+          const evt: SSEEvent = { event: eventType, data, id, explicitEvent };
           if (id) this.#lastEventId = id;
           this.#dispatch(evt);
         }
         eventType = 'message';
+        explicitEvent = false;
         dataLines = [];
         id = undefined;
         continue;
@@ -153,7 +154,7 @@ class SSEConnectionImpl implements SSEConnection {
       if (value.startsWith(' ')) value = value.slice(1);
 
       switch (field) {
-        case 'event': eventType = value; break;
+        case 'event': eventType = value; explicitEvent = true; break;
         case 'data': dataLines.push(value); break;
         case 'id': id = value; break;
         case 'retry': /* reconnect interval handled by reconnect config */ break;
@@ -173,7 +174,7 @@ class SSEConnectionImpl implements SSEConnection {
       }
     }
 
-    if (evt.event !== 'error') {
+    if (!evt.explicitEvent) {
       const fallback = this.#handlers.get('message');
       if (fallback) {
         for (const h of fallback) {

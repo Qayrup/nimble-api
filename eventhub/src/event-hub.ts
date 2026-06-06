@@ -13,7 +13,7 @@ function wrapDebounce(fn: AnyHandler, ms: number): CancellableWrapper {
     if (timer !== undefined) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = undefined;
-      if (!wrapped._cancelled) fn(...args);
+      if (!wrapped._cancelled) { try { fn(...args); } catch { /* async error */ } }
     }, ms);
   };
   return wrapped;
@@ -171,8 +171,6 @@ export class EventHub<T = Record<string, unknown>> {
       this.#handlers.set(event, []);
     }
     this.#handlers.get(event)!.unshift(record);
-
-    this.#checkMaxListeners(event);
 
     this.#checkMaxListeners(event);
     if (!this.#emittingMeta) {
