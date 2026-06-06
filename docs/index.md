@@ -40,7 +40,13 @@ features:
     details: 基于 EventHub 的事件系统，支持 onSuccess/onError 全局事件订阅和分发。
   - icon: 🧩
     title: Monorepo 架构
-    details: npm workspaces 管理，eventhub 和 api-service 独立发布，按需组合使用。
+    details: npm workspaces 管理，eventhub、api-service、sse-service、api-extend 独立发布，按需组合使用。
+  - icon: 📡
+    title: SSE 支持
+    details: '@nimble-api/sse-service 提供原生 SSE 客户端，自动重连、Last-Event-ID、事件路由。'
+  - icon: 🔁
+    title: 轮询扩展
+    details: '@nimble-api/api-extend 提供声明式 poll() 函数，类型安全、可取消、支持 type guard 窄化。'
 ---
 
 <style>

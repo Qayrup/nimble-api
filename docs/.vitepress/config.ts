@@ -16,6 +16,8 @@ export default defineConfig({
       { text: '指南', link: '/guide/' },
       { text: 'EventHub', link: '/eventhub/' },
       { text: 'API Service', link: '/api-service/' },
+      { text: 'API Extend', link: '/api-extend/' },
+      { text: 'SSE', link: '/sse-service/' },
     ],
 
     sidebar: {
@@ -49,6 +51,23 @@ export default defineConfig({
             { text: '钩子系统', link: '/api-service/hooks' },
             { text: '重试策略', link: '/api-service/retry' },
             { text: '类型系统', link: '/api-service/types' },
+            { text: 'TypedApi', link: '/api-service/typed' },
+          ],
+        },
+      ],
+      '/api-extend/': [
+        {
+          text: 'API Extend',
+          items: [
+            { text: '概述', link: '/api-extend/' },
+          ],
+        },
+      ],
+      '/sse-service/': [
+        {
+          text: 'SSE Service',
+          items: [
+            { text: '概述', link: '/sse-service/' },
           ],
         },
       ],

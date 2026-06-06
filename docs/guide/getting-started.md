@@ -8,6 +8,12 @@ npm install @nimble-api/eventhub
 
 # 安装 api-service（会同时安装 eventhub）
 npm install @nimble-api/api-service
+
+# SSE 客户端
+npm install @nimble-api/sse-service
+
+# 轮询扩展
+npm install @nimble-api/api-extend
 ```
 
 ## 基本用法 — EventHub
@@ -157,4 +163,51 @@ const token = await api.refreshToken();
 // 调用时覆盖 — 禁用端点默认的防抖
 const results = await api.searchUsers({ params: { q: 'nimble' }, debounce: false });
 // results: { id: string; name: string }[] — 不再 | null
+```
+
+## SSE 客户端
+
+```ts
+import { createSSE } from '@nimble-api/sse-service'
+
+const sse = createSSE('/api/stream', {
+  baseUrl: 'https://api.example.com',
+  reconnect: { maxAttempts: 5, interval: 3000 },
+})
+
+// 监听命名事件
+sse.on<User>('user:updated', (user) => {
+  console.log('用户更新:', user.name)
+})
+
+// 监听所有消息
+sse.onMessage((event, data) => {
+  console.log(`[${event}]`, data)
+})
+
+// 错误处理
+sse.onError((err) => console.error(err.message))
+
+// 手动关闭
+sse.close()
+```
+
+## 轮询
+
+```ts
+import { poll, PollTimeoutError } from '@nimble-api/api-extend'
+import { createApiClient } from '@nimble-api/api-service'
+
+const api = createApiClient({ baseUrl: 'https://api.example.com' })
+
+// 轮询等待异步任务完成
+const result = await poll(
+  () => api.get('/tasks/xyz'),
+  {
+    interval: 2000,
+    until: (data) => data.status === 'done',
+    maxAttempts: 30,
+    signal: new AbortController().signal,
+  }
+)
 ```
