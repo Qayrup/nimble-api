@@ -385,7 +385,18 @@ export class ApiClient {
       }
     }
 
-    // 6. Schema validation
+    // 6. Error status check (before schema — 500s shouldn't waste CPU on validation)
+    if (!state.options.validateStatus(response.status)) {
+      throw new ApiError(`Request failed with status ${response.status}`, {
+        code: response.status >= 400 && response.status < 500 ? 'ERR_BAD_REQUEST' : 'ERR_BAD_RESPONSE',
+        status: response.status,
+        data: response.data,
+        request: state.request,
+        response: { status: response.status, headers: response.headers },
+      });
+    }
+
+    // 7. Schema validation (only on successful status)
     if (state.options.schema) {
       const schema = state.options.schema;
       if (typeof schema.parse === 'function') {
@@ -403,17 +414,6 @@ export class ApiClient {
         }
         state.response.data = result.data;
       }
-    }
-
-    // 7. Error status check
-    if (!state.options.validateStatus(response.status)) {
-      throw new ApiError(`Request failed with status ${response.status}`, {
-        code: response.status >= 400 && response.status < 500 ? 'ERR_BAD_REQUEST' : 'ERR_BAD_RESPONSE',
-        status: response.status,
-        data: response.data,
-        request: state.request,
-        response: { status: response.status, headers: response.headers },
-      });
     }
 
     // 8. afterResponse hooks
