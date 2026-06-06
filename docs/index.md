@@ -54,12 +54,4 @@ features:
   --vp-home-hero-name-color: transparent;
   --vp-home-hero-name-background: -webkit-linear-gradient(120deg, #bd34fe, #41d1ff);
 }
-
-.VPHero .image-container {
-  max-width: 420px;
-}
-
-.VPHero .image-bg {
-  max-width: 400px;
-}
 </style>
