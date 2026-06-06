@@ -672,6 +672,7 @@ export class EventHub<T = Record<string, unknown>> {
     event: K,
     opts?: {
       signal?: AbortSignal;
+      /** Buffer 最大容量。0 表示无限制（慎用）。默认 1000。 */
       bufferMax?: number;
       /** Buffer 满时的策略。默认 `'dropOldest'` (FIFO)。 */
       bufferOverflow?: 'dropOldest' | 'dropNewest';
