@@ -6,7 +6,9 @@
 
 - **类型安全** — 通过 `EventMap` 泛型约束事件名与载荷类型，编译期即可发现错误
 - **O(1) 查找** — 底层使用 `Map<string, HandlerRecord[]>` 实现，查找复杂度 O(1)
-- **快照安全** — `emit()` 期间增删监听器不影响当前发射周期
+- **快照安全** — `emit()` 期间增删监听器不影响当前发射周期（可切换为 `fast` 模式零分配）
+- **惰性函数** — 所有模式决策在构造时完成，运行时热路径零分支开销
+- **全面可配置** — emit 错误策略、快照模式、meta 事件粒度、maxListeners 行为均可按需选择
 - **多范式** — 支持回调订阅、Promise 一次性、AsyncIterable 流式消费、防抖/节流、glob 通配符
 
 ## 核心概念
@@ -39,12 +41,14 @@ const hub2 = createEventHub<MyEvents>({ delimiter: '/.' });
 
 ## 订阅方式对比
 
-EventHub 提供 5 种订阅方式，按适用场景选择：
+EventHub 提供 7 种订阅方式，按适用场景选择：
 
 | 方法 | 触发次数 | 参数签名 | 适用场景 |
 |------|:--:|------|------|
 | `on(event, handler)` | 无限 | `(payload)` | 持久的业务逻辑监听 |
+| `prependListener(event, handler)` | 无限 | `(payload)` | 需要优先执行的监听器 |
 | `once(event, opts?)` | 1 次 | 返回 `Promise<payload>` | 等待某个一次性事件 |
+| `prependOnceListener(event, handler)` | 1 次 | `(payload)` | 优先的一次性监听 |
 | `many(event, n, handler)` | n 次 | `(payload)` | "前 N 次"模式，如新手引导步骤 |
 | `onPattern(pattern, handler)` | 无限 | `(event, payload)` | 按命名空间批量监听，如 `order:*` |
 | `onAny(handler)` | 无限 | `(event, payload)` | 全局日志、埋点、调试 |
@@ -53,9 +57,11 @@ EventHub 提供 5 种订阅方式，按适用场景选择：
 
 | 方法 | 执行方式 | 错误处理 | 返回 |
 |------|------|------|------|
-| `emit(event, payload)` | 同步并行 | 收集后抛 `AggregateError` | `void` |
+| `emit(event, payload)` | 同步并行 | 可配置：收集抛 `AggregateError`（默认）/ failFast / silent | `void` |
 | `emitSerial(event, payload)` | 异步顺序 `await` | 遇错即停 | `Promise<void>` |
 | `emitAsync(event, payload)` | 异步并行 | 不抛错，逐个查看 | `Promise<PromiseSettledResult[]>` |
+
+> `emit()` 的错误策略通过 `EventHubOptions.emitMode` 配置，`emitSafety: 'fast'` 可跳过快照开销获得零分配性能。详见 [API 参考](./api)。
 
 ## 实际场景
 
