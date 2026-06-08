@@ -20,6 +20,8 @@ interface ApiOptions {
   totalTimeout?: number;
   paramsSerializer?: (params: Record<string, unknown>) => string;
   maxContentLength?: number;
+  maxBodyLength?: number;
+  deleteBodyMode?: 'query' | 'json';
   xsrfCookieName?: string;
   xsrfHeaderName?: string;
   xsrf?: boolean;
@@ -41,7 +43,7 @@ interface RequestOptions {
   headers?: Record<string, string>;
   signal?: AbortSignal;
   timeout?: number;
-  responseType?: 'json' | 'text' | 'blob' | 'arrayBuffer';
+  responseType?: 'json' | 'text' | 'blob' | 'arrayBuffer' | 'stream';
   retry?: RetryConfig | false;
   cache?: { ttl?: number; mode?: 'ttl' | 'swr'; tags?: string[]; skip?: boolean; gcTime?: number };
   schema?: SchemaValidator;
@@ -55,6 +57,8 @@ interface RequestOptions {
   totalTimeout?: number;
   paramsSerializer?: (params: Record<string, unknown>) => string;
   maxContentLength?: number;
+  maxBodyLength?: number;
+  deleteBodyMode?: 'query' | 'json';
   lock?: boolean | number;
   debounce?: number | false | { wait: number; abort?: boolean };
   throttle?: number | false | { wait: number; edge?: 'leading' | 'trailing' | 'both' };
@@ -109,10 +113,11 @@ interface AdapterRequestConfig {
   body?: unknown;
   signal?: AbortSignal;
   timeout?: number;
-  responseType?: 'json' | 'text' | 'blob' | 'arrayBuffer';
+  responseType?: 'json' | 'text' | 'blob' | 'arrayBuffer' | 'stream';
   onUploadProgress?: (progress: { loaded: number; total: number }) => void;
   onDownloadProgress?: (progress: { loaded: number; total: number }) => void;
   uploadFieldName?: string;
+  deleteBodyMode?: 'query' | 'json';
 }
 ```
 

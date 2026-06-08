@@ -18,6 +18,7 @@ export default defineConfig({
       { text: 'API Service', link: '/api-service/' },
       { text: 'API Extend', link: '/api-extend/' },
       { text: 'SSE', link: '/sse-service/' },
+      { text: 'Node', link: '/node-adapter/' },
     ],
 
     sidebar: {
@@ -68,6 +69,14 @@ export default defineConfig({
           text: 'SSE Service',
           items: [
             { text: '概述', link: '/sse-service/' },
+          ],
+        },
+      ],
+      '/node-adapter/': [
+        {
+          text: 'Node Adapter',
+          items: [
+            { text: '概述', link: '/node-adapter/' },
           ],
         },
       ],

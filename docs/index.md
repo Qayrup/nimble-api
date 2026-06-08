@@ -4,7 +4,7 @@ layout: home
 hero:
   name: Nimble-API
   text: 轻量级 API 服务框架
-  tagline: 事件驱动 · 可扩展适配器 · 完整的类型安全
+  tagline: 事件驱动 · 多端适配 · 完整的类型安全 · Node.js 原生支持
   image:
     src: /logo.svg
     alt: Nimble-API
@@ -22,7 +22,7 @@ features:
     details: 零外部依赖（eventhub），api-service 仅依赖 eventhub。Tree-shaking 友好，按需加载。
   - icon: 🔌
     title: 可扩展适配器
-    details: 内置 fetch 和 uni-app 适配器，实现 RequestAdapter 接口即可接入任意 HTTP 层。
+    details: 内置 fetch、XHR、uni-app、Node.js 适配器。实现 RequestAdapter 接口即可接入任意 HTTP 层。
   - icon: 🛡️
     title: 类型安全
     details: 完整的 TypeScript 类型推导，EventMap 泛型约束事件，TypedApi 生成端点包装器。
@@ -40,7 +40,7 @@ features:
     details: 基于 EventHub 的事件系统，支持 onSuccess/onError 全局事件订阅和分发。
   - icon: 🧩
     title: Monorepo 架构
-    details: npm workspaces 管理，eventhub、api-service、sse-service、api-extend 独立发布，按需组合使用。
+    details: npm workspaces 管理，eventhub、api-service、node-adapter、sse-service、api-extend 独立发布，按需组合使用。
   - icon: 📡
     title: SSE 支持
     details: '@nimble-api/sse-service 提供原生 SSE 客户端，自动重连、Last-Event-ID、事件路由。'

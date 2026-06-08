@@ -12,6 +12,9 @@ npm install @nimble-api/api-service
 # SSE 客户端
 npm install @nimble-api/sse-service
 
+# Node.js http/https 适配器
+npm install @nimble-api/node-adapter
+
 # 轮询扩展
 npm install @nimble-api/api-extend
 ```
@@ -198,6 +201,33 @@ sse.onError((err) => console.error(err.message))
 
 // 手动关闭
 sse.close()
+```
+
+## Node.js 适配器
+
+```ts
+import { createApiClient } from '@nimble-api/api-service'
+import { createNodeAdapter, SimpleCookieJar } from '@nimble-api/node-adapter'
+
+const jar = new SimpleCookieJar()
+
+const client = createApiClient({
+  baseUrl: 'https://api.example.com',
+  adapter: createNodeAdapter({
+    keepAlive: true,
+    maxRedirects: 5,
+    cookieJar: jar,
+  }),
+  retry: { limit: 3 },
+})
+
+// 流式下载
+const stream = await client.get('/large-file', { responseType: 'stream' })
+stream.pipe(createWriteStream('output.bin'))
+
+// Cookie 自动管理 — 登录后自动携带 session
+await client.post('/login', { json: { user: 'admin', pass: 'secret' } })
+await client.get('/dashboard')
 ```
 
 ## 轮询

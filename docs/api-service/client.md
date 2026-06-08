@@ -26,6 +26,8 @@ const api = createApiClient({
 | `adapter` | `RequestAdapter` | `createFetchAdapter()` | HTTP 适配器 |
 | `hooks` | `Hooks` | — | 生命周期钩子 |
 | `eventHub` | `EventHubLike` | — | 事件中心实例 |
+| `maxBodyLength` | `number` | — | 请求体大小上限，超限抛出 `ERR_MAX_SIZE` |
+| `deleteBodyMode` | `'query' \| 'json'` | `'query'` | DELETE 请求 body 处理方式：`'query'` 转为 query string，`'json'` 发送 JSON body |
 | `xsrf` | `boolean` | `true` | 设为 `false` 关闭 XSRF 自动注入 |
 | `onSwrError` | `(error: ApiError, key: string) => void` | — | SWR 后台刷新失败回调 |
 | `onEventError` | `(event: string, error: unknown) => void` | `console.warn` | emit 事件处理器抛错时的回调 |
@@ -57,7 +59,7 @@ api.options<T>('/users/{id}', opts?)
 | `headers` | `Record<string, string>` | 请求级请求头（与全局合并） |
 | `signal` | `AbortSignal` | 取消信号 |
 | `timeout` | `number` | 请求级超时 |
-| `responseType` | `'json' \| 'text' \| 'blob' \| 'arrayBuffer'` | 响应类型 |
+| `responseType` | `'json' \| 'text' \| 'blob' \| 'arrayBuffer' \| 'stream'` | 响应类型，`'stream'` 需 Node adapter |
 | `retry` | `RetryConfig \| false` | 请求级重写重试配置 |
 | `cache` | `{ ttl?, mode?, tags?, skip? }` | 请求级缓存控制 |
 | `schema` | `SchemaValidator` | 响应校验（Zod 等） |
@@ -69,6 +71,8 @@ api.options<T>('/users/{id}', opts?)
 | `debounce` | `number \| false \| { wait: number; abort?: boolean }` | 防抖（ms）；对象形式 `abort: true` 会用 AbortController 取消已发出的 HTTP 请求 |
 | `throttle` | `number \| false \| { wait: number; edge?: 'leading' \| 'trailing' \| 'both' }` | 节流（ms）；`edge` 控制发射边 |
 | `dedup` | `boolean` | `true` | 设为 `false` 跳过请求去重 |
+| `maxBodyLength` | `number` | — | 请求体大小上限（字节） |
+| `deleteBodyMode` | `'query' \| 'json'` | `'query'` | DELETE/GET/HEAD/OPTIONS body 处理方式 |
 | `uploadFieldName` | `string` | `'file'` | UniApp 适配器文件上传表单字段名 |
 
 ## CSRF 保护
@@ -125,6 +129,27 @@ const api = createApiClient({
 
 ```ts
 const api = createApiClient({ maxContentLength: 5 * 1024 * 1024 }); // 5MB
+```
+
+### `maxBodyLength`
+
+请求体大小上限。超限在发送前抛出 `ERR_MAX_SIZE` 错误，不产生网络请求。
+
+```ts
+const api = createApiClient({ maxBodyLength: 10 * 1024 * 1024 }); // 10MB 上限
+```
+
+### `deleteBodyMode`
+
+控制 DELETE/GET/HEAD/OPTIONS 请求 body 的处理方式。默认 `'query'` 将 body 转为 query string 参数；设为 `'json'` 则发送 JSON body。
+
+```ts
+// 全局 — 所有 DELETE 发送 JSON body
+const api = createApiClient({ deleteBodyMode: 'json' });
+
+// 单次控制
+await api.delete('/items/1', { json: { reason: 'obsolete' }, deleteBodyMode: 'json' });
+await api.delete('/items', { json: { ids: [1, 2] }, deleteBodyMode: 'query' }); // → /items?ids=1&ids=2
 ```
 
 ### `onUploadProgress` / `onDownloadProgress`

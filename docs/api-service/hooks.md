@@ -181,3 +181,27 @@ const api = createApiClient({
 ```
 
 动态 token 适用于 token 自动刷新的场景——每次请求前都会重新调用函数获取最新 token，无需手动更新钩子。
+
+### `createBasicAuth(username, password)`
+
+生成 Basic Auth 的 `beforeRequest` 钩子。支持静态凭据和动态凭据函数。
+
+```ts
+import { createBasicAuth } from '@nimble-api/api-service';
+
+// 静态凭据
+const api = createApiClient({
+  hooks: {
+    beforeRequest: [createBasicAuth('admin', 'secret')],
+  },
+});
+
+// 动态凭据 — 每次请求时调用函数获取
+const api = createApiClient({
+  hooks: {
+    beforeRequest: [createBasicAuth(() => getUsername(), () => getPassword())],
+  },
+});
+```
+
+与 `createBearerAuth` 相同，如果请求头中已存在 `Authorization`，则跳过注入。
