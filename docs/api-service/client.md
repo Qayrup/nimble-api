@@ -22,7 +22,7 @@ const api = createApiClient({
 | `headers` | `Record<string, string>` | — | 全局请求头 |
 | `timeout` | `number` | `30000` | 请求超时（ms） |
 | `retry` | `RetryConfig \| false` | `false` | 重试配置，false 禁用 |
-| `cache` | `CacheOptions \| false` | — | 缓存配置，false 禁用 |
+| `cache` | `CacheOptions \| false` | — | 缓存配置，`false` 禁用且不分配 MemoryCache |
 | `adapter` | `RequestAdapter` | `createFetchAdapter()` | HTTP 适配器 |
 | `hooks` | `Hooks` | — | 生命周期钩子 |
 | `eventHub` | `EventHubLike` | — | 事件中心实例 |

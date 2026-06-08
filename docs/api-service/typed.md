@@ -63,12 +63,12 @@ const api = createTypedApi(client, {
   liveSearch: { url: '/search', debounce: { wait: 300, abort: true }, _response: {} as Result },
 })
 
-// 节流：窗口期内后续调用返回 null
+// 节流：窗口期内后续调用返回 null（edge 默认 'both'——首次立即发 + 结束时补发一次）
 const api = createTypedApi(client, {
   track: { url: '/track', method: 'POST', throttle: 100, _response: {} as void },
 })
 
-// 节流 trailing：只发窗口内最后一次调用
+// 节流 trailing：每次调用重置 timer，只发窗口内最后一次调用（最新参数）
 const api = createTypedApi(client, {
   track: { url: '/track', method: 'POST', throttle: { wait: 1000, edge: 'trailing' }, _response: {} as void },
 })
@@ -110,7 +110,7 @@ const b = await api.guarded()  // 类型: Data | null  ← 自动添加 null
 | `_response` | 幻影字段 | 响应数据类型定义 |
 | `lock` | `boolean` | 阻止并发调用 |
 | `debounce` | `number \| { wait: number; abort?: boolean }` | 防抖延迟（ms）；`abort: true` 取消已发出请求 |
-| `throttle` | `number \| { wait: number; edge?: 'leading' \| 'trailing' \| 'both' }` | 节流间隔（ms）；`edge` 控制发射边 |
+| `throttle` | `number \| { wait: number; edge?: 'leading' \| 'trailing' \| 'both' }` | 节流间隔（ms）；`edge` 控制发射边，默认 `'both'` |
 | `cache` | `CacheOptions` | 端点级缓存配置 |
 | `retry` | `RetryConfig` | 端点级重试配置 |
 | `schema` | `SchemaValidator` | 响应校验 |

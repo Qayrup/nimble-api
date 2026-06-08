@@ -313,7 +313,7 @@ interface EndpointSpec<
   _response?: TResponse;    // phantom field — 仅用于返回值类型推断
   lock?: boolean;
   debounce?: number | { wait: number; abort?: boolean };
-  throttle?: number | { wait: number; edge?: 'leading' | 'trailing' | 'both' };
+  throttle?: number | { wait: number; edge?: 'leading' | 'trailing' | 'both' }; // edge 默认 'both'
   cache?: RequestOptions['cache'];
   retry?: RequestOptions['retry'];
   schema?: SchemaValidator;

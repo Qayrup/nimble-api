@@ -110,8 +110,8 @@ export function createTypedApi<T extends EndpointSpecs>(
       const throttleWait = isThrottleObj ? (rawThrottle as { wait: number }).wait
         : (typeof rawThrottle === 'number' ? rawThrottle : 0);
       const throttleEdge: 'leading' | 'trailing' | 'both' =
-        isThrottleObj ? (((rawThrottle as { edge?: string }).edge as 'leading' | 'trailing' | 'both' | undefined) ?? 'leading')
-          : 'leading';
+        isThrottleObj ? (((rawThrottle as { edge?: string }).edge as 'leading' | 'trailing' | 'both' | undefined) ?? 'both')
+          : 'both';
 
       const execute = effectiveLock
         ? (opts?: Record<string, unknown>) => {
@@ -170,13 +170,15 @@ export function createTypedApi<T extends EndpointSpecs>(
           // Within throttle window
           if (throttleEdge === 'trailing' || throttleEdge === 'both') {
             st.lastArgs = reqOpts;
-            if (throttleEdge === 'trailing' && st.trailing === undefined) {
-              // trailing-only: defer first call
+            if (throttleEdge === 'trailing') {
+              // Reset timer on each call — trailing fires with latest args
+              if (st.trailing !== undefined) clearTimeout(st.trailing);
               st.trailing = setTimeout(() => {
                 st.trailing = undefined;
+                const args = st.lastArgs ?? reqOpts;
                 st.lastArgs = undefined;
                 st.lastTime = Date.now();
-                execute(reqOpts);
+                execute(args);
               }, throttleWait - elapsed);
             } else if (throttleEdge === 'both' && st.trailing === undefined) {
               st.trailing = setTimeout(() => {

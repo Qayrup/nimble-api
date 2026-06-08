@@ -68,7 +68,7 @@ function wrapDebounce(fn: AnyHandler, ms: number): CancellableWrapper {
     if (timer !== undefined) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = undefined;
-      if (!wrapped._cancelled) { try { fn(...args); } catch { /* async error */ } }
+      if (!wrapped._cancelled) fn(...args);
     }, ms);
   };
   return wrapped;
@@ -193,10 +193,7 @@ export class EventHub<T = Record<string, unknown>> {
     const maxAction = options?.maxListenersAction ?? 'warn';
     if (typeof maxAction === 'function') {
       this.#onMaxListenersExceeded = (event: string, count: number) => {
-        if (count > this.#maxListeners && !this.#warned.has(event)) {
-          this.#warned.add(event);
-          maxAction(event, count);
-        }
+        if (count > this.#maxListeners) maxAction(event, count);
       };
     } else if (maxAction === 'throw') {
       this.#onMaxListenersExceeded = (event: string, count: number) => {
@@ -611,14 +608,14 @@ export class EventHub<T = Record<string, unknown>> {
     } else {
       for (const [eventName, handlers] of this.#handlers) {
         if (META_EVENT_NAMES.has(eventName)) {
-          // Cancel timers for meta handlers, but don't emit meta events for them
           for (const record of handlers) this.#cancelHandler(record);
         } else if (handlers.length > 0) {
           this.#removeAllHandlers(eventName, handlers);
         }
       }
-      this.#handlers.clear();
 
+      // Process wildcard and any-handlers BEFORE clearing #handlers so meta event
+      // listeners (beforeListenerRemove / listenerRemoved) can still receive events.
       for (const wh of this.#wildcardHandlers) {
         if (this.#metaMode !== 'simple' && !this.#emittingMeta) {
           this.#emitMeta('beforeListenerRemove',
@@ -634,6 +631,8 @@ export class EventHub<T = Record<string, unknown>> {
       if (this.#anyHandlers.length > 0) {
         this.#removeAllHandlers('*', this.#anyHandlers);
       }
+
+      this.#handlers.clear();
     }
   }
 

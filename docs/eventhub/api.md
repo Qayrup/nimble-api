@@ -353,7 +353,11 @@ hub.hasListeners();             // false
 
 ## `setMaxListeners(n)` / `getMaxListeners()`
 
-设置/获取最大监听器数量限制。超出时的行为由 `EventHubOptions.maxListenersAction` 控制（默认 `'warn'`，仅首次发出控制台警告）。
+设置/获取最大监听器数量限制。超出时的行为由 `EventHubOptions.maxListenersAction` 控制。
+- 默认 `'warn'`：仅首次超出时 console.warn 一次，同一事件不重复警告
+- `'throw'`：直接抛错
+- `'silent'`：静默忽略
+- 自定义回调 `(event, count) => void`：**每次超出都调用**，不做去重
 
 ```ts
 setMaxListeners(n: number): void

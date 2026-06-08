@@ -39,7 +39,7 @@ export interface EventHubOptions {
 | `metaMode` | `'smart' \| 'full' \| 'lean' \| 'simple'` | `'smart'` | 移除监听时 meta 事件的 handler 携带策略（见下方矩阵） |
 | `emitMode` | `'aggregate' \| 'failFast' \| 'silent'` | `'aggregate'` | 同步 `emit()` 中 handler 错误的处理策略 |
 | `emitSafety` | `'safe' \| 'fast'` | `'safe'` | `safe`=快照迭代（默认），`fast`=直接迭代（零分配，但 handler 中 unsubscribe 会跳过下一个） |
-| `maxListenersAction` | `'warn' \| 'throw' \| 'silent' \| callback` | `'warn'` | 超出最大监听数时的行为 |
+| `maxListenersAction` | `'warn' \| 'throw' \| 'silent' \| callback` | `'warn'` | 超出最大监听数时的行为。回调模式下每次超出都调用，不做去重 |
 
 ### metaMode 矩阵
 

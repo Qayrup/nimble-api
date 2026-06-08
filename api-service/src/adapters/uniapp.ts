@@ -32,7 +32,7 @@ export function createUniAppAdapter(): RequestAdapter {
 
       let { url, method, headers, body, timeout, signal, responseType, onUploadProgress } = config;
 
-      if (body && (method === 'GET' || method === 'DELETE') && !(body instanceof FormData)) {
+      if (body && (method === 'GET' || method === 'DELETE' || method === 'HEAD' || method === 'OPTIONS') && !(body instanceof FormData)) {
         const sp = new URLSearchParams();
         for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
           if (v != null) sp.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));

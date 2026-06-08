@@ -52,7 +52,7 @@ const DEFAULT_OPTIONS: NormalizedRequestOptions = {
 
 export class ApiClient {
   #options: ApiOptions;
-  #cache: MemoryCache;
+  #cache: MemoryCache | undefined;
   #adapter: RequestAdapter;
   #hooks: Hooks;
   #inFlight = new Map<string, Promise<unknown>>();
@@ -66,8 +66,9 @@ export class ApiClient {
     this.#hooks = { ...options.hooks };
     this.#eventHub = options.eventHub;
 
-    const maxSize = options.cache === false ? 0 : (options.cache?.maxSize ?? Infinity);
-    this.#cache = new MemoryCache(maxSize);
+    if (options.cache !== false) {
+      this.#cache = new MemoryCache(options.cache?.maxSize ?? Infinity);
+    }
   }
 
   // === HTTP Methods ===
@@ -128,11 +129,12 @@ export class ApiClient {
     this.#checkDestroyed();
     return {
       invalidate: (opts: { tags?: string[]; key?: string; keyPrefix?: string }) => {
+        if (!this.#cache) return;
         if (opts.tags) this.#cache.invalidateByTags(opts.tags);
         if (opts.key) this.#cache.invalidateByKey(opts.key);
         if (opts.keyPrefix) this.#cache.invalidateByKeyPrefix(opts.keyPrefix);
       },
-      clear: () => this.#cache.clear(),
+      clear: () => this.#cache?.clear(),
     };
   }
 
@@ -141,7 +143,7 @@ export class ApiClient {
   dispose(): void {
     this.#disposeController.abort();
     this.#destroyed = true;
-    this.#cache.clear();
+    this.#cache?.clear();
     this.#inFlight.clear();
   }
 
@@ -304,7 +306,7 @@ export class ApiClient {
     const cacheMode = state.options.cache.mode;
     const cacheTags = state.options.cache.tags;
 
-    if (cacheKey && !state.options.cache.skip) {
+    if (cacheKey && this.#cache && !state.options.cache.skip) {
       if (cacheMode === 'swr') {
         const stale = this.#cache.getStale(cacheKey);
         if (stale && !stale.stale) {
@@ -315,8 +317,10 @@ export class ApiClient {
           state.cache = { key: cacheKey, hit: true, stale: true };
           // Return stale, revalidate in background — failures are silent
           this.#doFetch(state, cacheKey, cacheTags).catch((err: unknown) => {
-            if (this.#options.onSwrError && err instanceof ApiError) {
-              this.#options.onSwrError(err, cacheKey);
+            if (err instanceof ApiError) {
+              if (this.#options.onSwrError) this.#options.onSwrError(err, cacheKey);
+            } else {
+              console.warn('[@nimble-api/api-service] SWR background revalidation failed', err);
             }
           });
           return stale.data as T;
@@ -422,7 +426,7 @@ export class ApiClient {
     state = await runAfterResponse(this.#hooks, state);
 
     // 9. Cache store
-    if (cacheKey) {
+    if (cacheKey && this.#cache) {
       const cacheOpts = state.options.cache;
       this.#cache.set(cacheKey, state.response!.data, cacheOpts.ttl, cacheTags, cacheOpts.gcTime);
     }
@@ -433,7 +437,7 @@ export class ApiClient {
     }
 
     // 11. Invalidate tags
-    if (state.options.invalidates.length > 0) {
+    if (state.options.invalidates.length > 0 && this.#cache) {
       this.#cache.invalidateByTags(state.options.invalidates);
     }
 
@@ -526,8 +530,7 @@ export class ApiClient {
       const idKey = entity.idKey ?? 'id';
       for (const item of items) {
         const id = (item as Record<string, unknown>)[idKey];
-        if (id != null) {
-          // Store entity in cache with entity tag
+        if (id != null && this.#cache) {
           const entityKey = `@entity:${entity.name}:${String(id)}`;
           this.#cache.set(entityKey, item, Infinity, [entity.name], 86400000);
         }
