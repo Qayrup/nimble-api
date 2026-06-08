@@ -14,7 +14,8 @@
     }
   },
   "sideEffects": false,
-  "files": ["dist"],
+  "license": "ISC",
+  "files": ["dist", "README.md"],
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
