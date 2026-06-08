@@ -121,8 +121,8 @@ export interface RequestOptions {
   totalTimeout?: number;
   paramsSerializer?: (params: Record<string, unknown>) => string;
   maxContentLength?: number;
-  /** Override per-call — prevent concurrent calls */
-  lock?: boolean;
+  /** Limit concurrent calls. true/1 = one-at-a-time; N = allow up to N concurrent. Calls beyond the limit return null. */
+  lock?: boolean | number;
   /** Override per-call — debounce in ms, or `{ wait, abort }` to cancel in-flight. `false` to disable */
   debounce?: number | false | { wait: number; abort?: boolean };
   /** Override per-call — throttle in ms, or `{ wait, edge }` for edge control. `false` to disable endpoint default */
@@ -280,8 +280,8 @@ export interface EndpointSpec<
   _params?: TParams;
   /** Phantom field — only used for response type inference, never accessed at runtime */
   _response?: TResponse;
-  /** Prevent concurrent calls to this endpoint. While a call is in-flight, subsequent calls return null immediately. */
-  lock?: boolean;
+  /** Limit concurrent calls. true/1 = one-at-a-time; N = allow up to N concurrent. */
+  lock?: boolean | number;
   /** Debounce in ms, or `{ wait, abort }`. `abort: true` cancels in-flight HTTP requests. Suppressed calls resolve to null. */
   debounce?: number | { wait: number; abort?: boolean };
   /** Throttle in ms, or `{ wait, edge }` for edge control. Suppressed calls return null. */

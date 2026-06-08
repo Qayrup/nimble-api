@@ -1,11 +1,5 @@
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi, afterAll } from 'vitest';
 import { createSSE } from '../index';
-
-function createMockFetch() {
-  vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
-    throw new Error('fetch should not be called in unit test');
-  });
-}
 
 describe('SSEConnection', () => {
   let stream: ReturnType<typeof createSSE>;

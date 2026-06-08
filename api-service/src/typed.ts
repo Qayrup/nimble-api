@@ -5,7 +5,7 @@ type EndpointSpecs = Record<string, EndpointSpec<any, any>>;
 
 type HasSuppression<T> = T extends { debounce: number | { wait: number } } ? true
   : T extends { throttle: number | { wait: number } } ? true
-  : T extends { lock: boolean } ? true
+  : T extends { lock: boolean | number } ? true
   : false;
 
 type SuppressReturn<T, Spec> = HasSuppression<Spec> extends true ? T | null : T;
@@ -46,7 +46,7 @@ export function createTypedApi<T extends EndpointSpecs>(
   endpoints: T,
 ): TypedApi<T> {
   const api = {} as TypedApi<T>;
-  const locks = new Map<string, boolean>();
+  const locks = new Map<string, number>();
   const debounceStates = new Map<string, DebounceState>();
   const throttleStates = new Map<string, ThrottleState>();
 
@@ -103,7 +103,8 @@ export function createTypedApi<T extends EndpointSpecs>(
         : (typeof rawDebounce === 'number' ? rawDebounce : 0);
       const debounceAbort = isDebounceObj ? ((rawDebounce as { abort?: boolean }).abort ?? false) : false;
       const rawThrottle = (reqOpts?.throttle as number | false | { wait: number; edge?: string } | undefined) ?? spec.throttle;
-      const effectiveLock = (reqOpts?.lock as boolean | undefined) ?? spec.lock;
+      const rawLock = (reqOpts?.lock as boolean | number | undefined) ?? spec.lock;
+      const lockLimit: number = rawLock === true ? 1 : rawLock === false || rawLock == null ? 0 : Number(rawLock);
 
       // Normalize throttle to { wait, edge }
       const isThrottleObj = typeof rawThrottle === 'object' && rawThrottle !== null;
@@ -113,11 +114,15 @@ export function createTypedApi<T extends EndpointSpecs>(
         isThrottleObj ? (((rawThrottle as { edge?: string }).edge as 'leading' | 'trailing' | 'both' | undefined) ?? 'both')
           : 'both';
 
-      const execute = effectiveLock
+      const execute = lockLimit > 0
         ? (opts?: Record<string, unknown>) => {
-            if (locks.get(name)) return Promise.resolve(null);
-            locks.set(name, true);
-            return rawMethod(opts).finally(() => { locks.delete(name); });
+            const count = locks.get(name) ?? 0;
+            if (count >= lockLimit) return Promise.resolve(null);
+            locks.set(name, count + 1);
+            return rawMethod(opts).finally(() => {
+              const c = locks.get(name);
+              if (c !== undefined) c <= 1 ? locks.delete(name) : locks.set(name, c - 1);
+            });
           }
         : rawMethod;
 

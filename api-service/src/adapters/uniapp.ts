@@ -30,7 +30,9 @@ export function createUniAppAdapter(): RequestAdapter {
       const uni = getUni();
       if (!uni) throw new Error('UniApp environment not available');
 
-      let { url, method, headers, body, timeout, signal, responseType, onUploadProgress } = config;
+      const { method, headers, timeout, signal, responseType, onUploadProgress } = config;
+      let { url } = config;
+      let { body } = config;
 
       if (body && (method === 'GET' || method === 'DELETE' || method === 'HEAD' || method === 'OPTIONS') && !(body instanceof FormData)) {
         const sp = new URLSearchParams();
@@ -67,7 +69,7 @@ export function createUniAppAdapter(): RequestAdapter {
           signal.addEventListener('abort', onAbortUpload, { once: true });
         }
         if (onUploadProgress && typeof (task as Record<string, unknown>).onProgressUpdate === 'function') {
-          (task as Record<string, Function>).onProgressUpdate((res: { totalBytesSent?: number; totalBytesExpectedToSend?: number }) => {
+          (task as Record<string, (cb: (res: { totalBytesSent?: number; totalBytesExpectedToSend?: number }) => void) => void>).onProgressUpdate((res) => {
             onUploadProgress({ loaded: res.totalBytesSent ?? 0, total: res.totalBytesExpectedToSend ?? 0 });
           });
         }

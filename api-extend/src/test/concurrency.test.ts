@@ -112,7 +112,7 @@ describe('createConcurrencyLimit', () => {
     await new Promise(r => setTimeout(r, 5));
 
     const p2 = limiter(() => { executed.push(2); return Promise.resolve(); });
-    const p3 = limiter(() => { executed.push(3); return Promise.resolve(); });
+    void limiter(() => { executed.push(3); return Promise.resolve(); });
 
     expect(limiter.pending).toBe(2);
 

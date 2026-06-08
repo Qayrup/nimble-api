@@ -65,7 +65,7 @@ api.options<T>('/users/{id}', opts?)
 | `onError` | `{ default: string; [code: string]: string }` | 失败时发射的事件 |
 | `entities` | `EntityDef[]` | 从响应提取的实体标签 |
 | `invalidates` | `string[]` | 请求成功后失效的缓存标签 |
-| `lock` | `boolean` | 并发锁，true 时同一端点同时只允许一个请求 |
+| `lock` | `boolean \| number` | 并发锁，`true`/`1`=串行，`N`=最多 N 个并发，超出返回 `null` |
 | `debounce` | `number \| false \| { wait: number; abort?: boolean }` | 防抖（ms）；对象形式 `abort: true` 会用 AbortController 取消已发出的 HTTP 请求 |
 | `throttle` | `number \| false \| { wait: number; edge?: 'leading' \| 'trailing' \| 'both' }` | 节流（ms）；`edge` 控制发射边 |
 | `dedup` | `boolean` | `true` | 设为 `false` 跳过请求去重 |
@@ -290,7 +290,7 @@ const immediate = await api.searchUsers({ params: { q: 'nimble' }, debounce: fal
 |------|------|
 | `url` | 端点 URL，支持 `{param}` 模板 |
 | `method` | HTTP 方法，默认 GET |
-| `lock` | 并发锁，同端点任一时刻只允许一个请求运行 |
+| `lock` | 并发锁，`true`/`1`=串行，`N`=最多 N 个并发 |
 | `debounce` | 防抖（ms），取消前一次未完成调用，被取消的调用返回 null |
 | `throttle` | 节流（ms），窗口内后续调用直接返回 null |
 | `cache` / `retry` / `schema` | 覆盖全局配置 |

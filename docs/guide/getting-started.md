@@ -126,12 +126,20 @@ const api = createTypedApi(client, {
     onSuccess: 'cache:users:updated',
   } satisfies EndpointSpec,
 
-  // lock: 防并发重复调用，同时多次调用只发一次请求
+  // lock: 并发锁。true/1=串行，N=允许 N 个并发，超出返回 null
   refreshToken: {
     url: '/auth/refresh',
     method: 'POST',
     lock: true,
     _response: {} as { token: string },
+  } satisfies EndpointSpec,
+
+  // lock N：允许 3 个并发上传，第 4 个返回 null
+  upload: {
+    url: '/upload',
+    method: 'POST',
+    lock: 3,
+    _response: {} as { url: string },
   } satisfies EndpointSpec,
 
   // debounce: 搜索防抖，300ms 内连续输入只发最后一次请求

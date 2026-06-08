@@ -55,7 +55,7 @@ interface RequestOptions {
   totalTimeout?: number;
   paramsSerializer?: (params: Record<string, unknown>) => string;
   maxContentLength?: number;
-  lock?: boolean;
+  lock?: boolean | number;
   debounce?: number | false | { wait: number; abort?: boolean };
   throttle?: number | false | { wait: number; edge?: 'leading' | 'trailing' | 'both' };
   dedup?: boolean;
@@ -311,7 +311,7 @@ interface EndpointSpec<
   method?: string;
   _params?: TParams;        // phantom field — 仅用于参数类型推断
   _response?: TResponse;    // phantom field — 仅用于返回值类型推断
-  lock?: boolean;
+  lock?: boolean | number;
   debounce?: number | { wait: number; abort?: boolean };
   throttle?: number | { wait: number; edge?: 'leading' | 'trailing' | 'both' }; // edge 默认 'both'
   cache?: RequestOptions['cache'];
@@ -339,7 +339,7 @@ type TypedApi<T extends Record<string, EndpointSpec<any, any>>> = {
   [K in keyof T & string]: (
     ...args: ... // 根据 spec._params 自动推导 opts.params 类型
   ) => Promise<
-    T[K] extends { debounce: number } | { throttle: number } | { lock: boolean }
+    T[K] extends { debounce: number } | { throttle: number } | { lock: boolean | number }
       ? T[K]['_response'] | null
       : T[K]['_response']
   >

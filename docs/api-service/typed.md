@@ -73,9 +73,14 @@ const api = createTypedApi(client, {
   track: { url: '/track', method: 'POST', throttle: { wait: 1000, edge: 'trailing' }, _response: {} as void },
 })
 
-// 锁：并发调用只允许一个进行中，其余返回 null
+// 锁：同一时刻只允许 1 个进行中，其余返回 null
 const api = createTypedApi(client, {
   submit: { url: '/submit', method: 'POST', lock: true, _response: {} as void },
+})
+
+// 锁 N：允许最多 N 个并发，超出返回 null
+const api = createTypedApi(client, {
+  upload: { url: '/upload', method: 'POST', lock: 3, _response: {} as void },
 })
 ```
 
@@ -108,7 +113,7 @@ const b = await api.guarded()  // 类型: Data | null  ← 自动添加 null
 | `method` | `string` | HTTP 方法，默认 `GET` |
 | `_params` | 幻影字段 | 路径参数类型定义 |
 | `_response` | 幻影字段 | 响应数据类型定义 |
-| `lock` | `boolean` | 阻止并发调用 |
+| `lock` | `boolean \| number` | 并发锁，`true`/`1`=串行，`N`=最多 N 个并发 |
 | `debounce` | `number \| { wait: number; abort?: boolean }` | 防抖延迟（ms）；`abort: true` 取消已发出请求 |
 | `throttle` | `number \| { wait: number; edge?: 'leading' \| 'trailing' \| 'both' }` | 节流间隔（ms）；`edge` 控制发射边，默认 `'both'` |
 | `cache` | `CacheOptions` | 端点级缓存配置 |
