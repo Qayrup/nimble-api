@@ -929,8 +929,8 @@ export class EventHub<T = Record<string, unknown>> {
   #emitAggregateSafe(event: string, payload: unknown): void {
     const specific = this.#handlers.get(event);
     const specSnap = specific ? specific.slice() : [];
-    const wildSnap = this.#wildcardHandlers.slice();
-    const anySnap = this.#anyHandlers.slice();
+    const wildSnap = this.#wildcardHandlers.length > 0 ? this.#wildcardHandlers.slice() : [];
+    const anySnap = this.#anyHandlers.length > 0 ? this.#anyHandlers.slice() : [];
     const errors: unknown[] = [];
 
     for (const r of specSnap) { try { r.raw(payload); } catch (e) { errors.push(e); } }
@@ -948,8 +948,8 @@ export class EventHub<T = Record<string, unknown>> {
   #emitFailFastSafe(event: string, payload: unknown): void {
     const specific = this.#handlers.get(event);
     const specSnap = specific ? specific.slice() : [];
-    const wildSnap = this.#wildcardHandlers.slice();
-    const anySnap = this.#anyHandlers.slice();
+    const wildSnap = this.#wildcardHandlers.length > 0 ? this.#wildcardHandlers.slice() : [];
+    const anySnap = this.#anyHandlers.length > 0 ? this.#anyHandlers.slice() : [];
 
     for (const r of specSnap) r.raw(payload);
     for (const wh of wildSnap) {
@@ -961,8 +961,8 @@ export class EventHub<T = Record<string, unknown>> {
   #emitSilentSafe(event: string, payload: unknown): void {
     const specific = this.#handlers.get(event);
     const specSnap = specific ? specific.slice() : [];
-    const wildSnap = this.#wildcardHandlers.slice();
-    const anySnap = this.#anyHandlers.slice();
+    const wildSnap = this.#wildcardHandlers.length > 0 ? this.#wildcardHandlers.slice() : [];
+    const anySnap = this.#anyHandlers.length > 0 ? this.#anyHandlers.slice() : [];
 
     for (const r of specSnap) { try { r.raw(payload); } catch { /* silent */ } }
     for (const wh of wildSnap) {
