@@ -184,6 +184,7 @@ export class ApiClient {
       }
     }
 
+    // cacheKey = '' when ttl <= 0 — acts as sentinel: all downstream if(cacheKey) checks skip caching
     const cacheKey = normalized.cache.ttl > 0
       ? generateCacheKey(rawUrl, opts.params ?? {}, body ?? {})
       : '';
@@ -253,9 +254,10 @@ export class ApiClient {
           throw errorState.error;
         }
 
-        // Check retry
+        // Check retry — skip if signal already aborted (e.g. dispose() called mid-request)
         if (
           retry !== false &&
+          !state.request.signal?.aborted &&
           state.retryCount <= (retry.limit ?? DEFAULT_RETRY.limit) &&
           shouldRetry(retry, error.status ?? error.response?.status, state.request.method)
         ) {
@@ -560,7 +562,7 @@ export class ApiClient {
       const code = typeof state.error.data === 'object' && state.error.data !== null
         ? (state.error.data as Record<string, unknown>).code
         : undefined;
-      const eventKey = (code != null ? state.options.onError[code as number] : undefined) ?? state.options.onError.default;
+      const eventKey = (code != null ? state.options.onError[String(code)] : undefined) ?? state.options.onError.default;
       if (eventKey) {
         try { hub.emit(eventKey, state.error.data); } catch (err: unknown) {
           if (this.#options.onEventError) this.#options.onEventError(eventKey, err);

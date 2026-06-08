@@ -167,7 +167,8 @@ export function createTypedApi<T extends EndpointSpecs>(
         const elapsed = now - st.lastTime;
 
         if (elapsed < throttleWait) {
-          // Within throttle window
+          // Within throttle window — callers below get null, trailing callbacks are fire-and-forget:
+          // 补发请求无接收者，失败无意义，故用 void（非 .catch）标记意图。
           if (throttleEdge === 'trailing' || throttleEdge === 'both') {
             st.lastArgs = reqOpts;
             if (throttleEdge === 'trailing') {
@@ -178,7 +179,7 @@ export function createTypedApi<T extends EndpointSpecs>(
                 const args = st.lastArgs ?? reqOpts;
                 st.lastArgs = undefined;
                 st.lastTime = Date.now();
-                execute(args);
+                void execute(args);
               }, throttleWait - elapsed);
             } else if (throttleEdge === 'both' && st.trailing === undefined) {
               st.trailing = setTimeout(() => {
@@ -186,7 +187,7 @@ export function createTypedApi<T extends EndpointSpecs>(
                 const args = st.lastArgs ?? reqOpts;
                 st.lastArgs = undefined;
                 st.lastTime = Date.now();
-                execute(args);
+                void execute(args);
               }, throttleWait - elapsed);
             }
           }

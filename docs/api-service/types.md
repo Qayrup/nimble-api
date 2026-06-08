@@ -46,7 +46,7 @@ interface RequestOptions {
   cache?: { ttl?: number; mode?: 'ttl' | 'swr'; tags?: string[]; skip?: boolean; gcTime?: number };
   schema?: SchemaValidator;
   onSuccess?: string | string[];
-  onError?: { default: string; [code: number]: string };
+  onError?: { default: string; [code: string]: string };
   entities?: EntityDef[];
   invalidates?: string[];
   validateStatus?: (status: number) => boolean;
@@ -318,7 +318,7 @@ interface EndpointSpec<
   retry?: RequestOptions['retry'];
   schema?: SchemaValidator;
   onSuccess?: string | string[];
-  onError?: { default: string; [code: number]: string };
+  onError?: { default: string; [code: string]: string };
   entities?: EntityDef[];
   invalidates?: string[];
   headers?: Record<string, string>;

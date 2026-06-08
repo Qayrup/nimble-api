@@ -62,7 +62,7 @@ api.options<T>('/users/{id}', opts?)
 | `cache` | `{ ttl?, mode?, tags?, skip? }` | 请求级缓存控制 |
 | `schema` | `SchemaValidator` | 响应校验（Zod 等） |
 | `onSuccess` | `string \| string[]` | 成功时通过 EventHub 发射的事件 |
-| `onError` | `{ default: string; [code: number]: string }` | 失败时发射的事件 |
+| `onError` | `{ default: string; [code: string]: string }` | 失败时发射的事件 |
 | `entities` | `EntityDef[]` | 从响应提取的实体标签 |
 | `invalidates` | `string[]` | 请求成功后失效的缓存标签 |
 | `lock` | `boolean` | 并发锁，true 时同一端点同时只允许一个请求 |

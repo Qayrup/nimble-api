@@ -111,7 +111,7 @@ export interface RequestOptions {
   };
   schema?: SchemaValidator;
   onSuccess?: string | string[];
-  onError?: { default: string; [code: number]: string };
+  onError?: { default: string; [code: string]: string };
   entities?: EntityDef[];
   invalidates?: string[];
   validateStatus?: (status: number) => boolean;
@@ -146,7 +146,7 @@ export interface NormalizedRequestOptions {
     gcTime?: number;
   };
   onSuccess: string[];
-  onError: { default: string; [code: number]: string } | null;
+  onError: { default: string; [code: string]: string } | null;
   entities: EntityDef[];
   invalidates: string[];
   schema: SchemaValidator | null;
@@ -290,7 +290,7 @@ export interface EndpointSpec<
   retry?: RequestOptions['retry'];
   schema?: SchemaValidator;
   onSuccess?: string | string[];
-  onError?: { default: string; [code: number]: string };
+  onError?: { default: string; [code: string]: string };
   entities?: EntityDef[];
   invalidates?: string[];
   headers?: Record<string, string>;

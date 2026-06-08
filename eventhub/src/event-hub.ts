@@ -570,16 +570,34 @@ export class EventHub<T = Record<string, unknown>> {
   offAll(event?: keyof T & string, handler?: (payload: T[keyof T]) => void): void {
     if (this.#destroyed) return;
 
-    // offAll(event, handler) — remove all matching handlers
+    // offAll(event, handler) — remove all matching handlers (exact + wildcard)
     if (event !== undefined && handler !== undefined) {
       const handlers = this.#handlers.get(event);
-      if (!handlers) return;
-      for (let i = handlers.length - 1; i >= 0; i--) {
-        if (handlers[i].original === handler) {
-          this.#removeHandler(event, handlers, handlers[i]);
+      if (handlers) {
+        for (let i = handlers.length - 1; i >= 0; i--) {
+          if (handlers[i].original === handler) {
+            this.#removeHandler(event, handlers, handlers[i]);
+          }
+        }
+        if (handlers.length === 0) this.#handlers.delete(event);
+      }
+
+      // Wildcard: match by regex + handler reference
+      for (let i = this.#wildcardHandlers.length - 1; i >= 0; i--) {
+        const wc = this.#wildcardHandlers[i];
+        if (wc.regex.test(event) && wc.record.original === handler) {
+          if (this.#metaMode !== 'simple' && !this.#emittingMeta) {
+            this.#emitMeta('beforeListenerRemove',
+              this.#metaMode === 'lean' ? { event: wc.pattern } : { event: wc.pattern, handler: wc.record.original },
+              { throwOnError: true });
+          }
+          this.#cancelHandler(wc.record);
+          this.#wildcardHandlers.splice(i, 1);
+          if (this.#metaMode !== 'simple' && !this.#emittingMeta) {
+            this.#emitMeta('listenerRemoved', { event: wc.pattern });
+          }
         }
       }
-      if (handlers.length === 0) this.#handlers.delete(event);
       return;
     }
 
@@ -591,7 +609,7 @@ export class EventHub<T = Record<string, unknown>> {
       this.#handlers.delete(event);
 
       for (let i = this.#wildcardHandlers.length - 1; i >= 0; i--) {
-        if (this.#wildcardHandlers[i].pattern === event) {
+        if (this.#wildcardHandlers[i].regex.test(event)) {
           const wc = this.#wildcardHandlers[i];
           if (this.#metaMode !== 'simple' && !this.#emittingMeta) {
             this.#emitMeta('beforeListenerRemove',
