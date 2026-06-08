@@ -38,10 +38,13 @@ features:
   - icon: 📡
     title: 事件驱动
     details: 基于 EventHub 的事件系统，支持 onSuccess/onError 全局事件订阅和分发。
+  - icon: 🖥️
+    title: Node.js 原生适配器
+    details: 独立包 @nimble-api/node-adapter，keepAlive 连接池、代理转发、TLS 证书、流式响应、Cookie jar 等生产级能力。
   - icon: 🧩
     title: Monorepo 架构
-    details: npm workspaces 管理，eventhub、api-service、node-adapter、sse-service、api-extend 独立发布，按需组合使用。
-  - icon: 📡
+    details: npm workspaces 管理，5 个包独立发布，最小化依赖，按需组合使用。
+  - icon: 📨
     title: SSE 支持
     details: '@nimble-api/sse-service 提供原生 SSE 客户端，自动重连、Last-Event-ID、事件路由。'
   - icon: 🔁
