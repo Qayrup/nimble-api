@@ -1,6 +1,6 @@
 {
   "name": "@nimble-api/api-service",
-  "version": "1.0.0",
+  "version": "1.1.2",
   "description": "一个轻量级的 API 服务框架，支持动态方法生成、请求缓存、防抖/节流等优化策略",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

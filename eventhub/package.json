@@ -1,6 +1,6 @@
 {
   "name": "@nimble-api/eventhub",
-  "version": "1.1.0",
+  "version": "1.1.2",
   "description": "一个轻量级的事件管理器",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
