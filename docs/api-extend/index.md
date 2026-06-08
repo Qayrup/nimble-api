@@ -1,10 +1,11 @@
 # API Extend 概述
 
-`@nimble-api/api-extend` 是 `@nimble-api/api-service` 的扩展包，提供轮询（polling）等高级请求模式。
+`@nimble-api/api-extend` 是 `@nimble-api/api-service` 的扩展包，提供轮询（polling）、并发控制等高级请求模式。
 
 ## 设计理念
 
 - **零配置轮询** — 一条函数调用，声明式等待异步条件满足
+- **并发控制** — 限制同时进行的 Promise 数量，FIFO 排队
 - **类型安全** — `until` 谓词支持 type guard 窄化
 - **可取消** — 通过 `AbortSignal` 优雅中断
 
@@ -95,6 +96,72 @@ const result = await poll(
 )
 // result 类型被窄化为 { state: 'done'; value: number }
 console.log(result.value) // ✅ 类型安全
+```
+
+## createConcurrencyLimit()
+
+限制同时进行的 Promise 数量，超出部分 FIFO 排队。
+
+```ts
+import { createConcurrencyLimit } from '@nimble-api/api-extend'
+
+const limiter = createConcurrencyLimit(4)
+
+// 最多 4 个并发，其余排队
+const results = await Promise.all(
+  urls.map(url => limiter(() => fetch(url)))
+)
+```
+
+### 参数
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `limit` | `number` | 最大并发数，必须 >= 1 |
+
+### 返回值
+
+返回一个 `ConcurrencyLimiter` 对象，既可调用又带有属性：
+
+```ts
+interface ConcurrencyLimiter {
+  <T>(fn: () => Promise<T>): Promise<T>;
+  readonly running: number;   // 当前运行中的任务数
+  readonly pending: number;   // 排队等待中的任务数
+  clear(): void;              // 清空队列（不影响已运行的任务）
+}
+```
+
+### 使用示例
+
+**批量请求：**
+
+```ts
+const limiter = createConcurrencyLimit(3)
+
+for (const id of ids) {
+  limiter(() => apiClient.get(`/api/user/${id}`))
+    .then(data => console.log(data))
+}
+```
+
+**AbortSignal 配合清空队列：**
+
+```ts
+const limiter = createConcurrencyLimit(2)
+const controller = new AbortController()
+
+const task = limiter(() => apiClient.get('/api/data', { signal: controller.signal }))
+
+// 取消排队 + 清空队列
+controller.abort()
+limiter.clear()
+```
+
+**监控并发状态：**
+
+```ts
+console.log(`进行中: ${limiter.running}, 排队: ${limiter.pending}`)
 ```
 
 ## 错误类型
