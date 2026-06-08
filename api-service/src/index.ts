@@ -11,7 +11,7 @@ export type { TypedApi } from './typed';
 export { ApiError, NetworkError, stop } from './core/types';
 export { calcBackoff, shouldRetry, DEFAULT_RETRY } from './retry';
 export { runBeforeRequest, runAfterResponse, runBeforeRetry, runBeforeError, runInitHooks } from './hooks';
-export { createBearerAuth } from './auth';
+export { createBearerAuth, createBasicAuth } from './auth';
 
 export type {
   ApiOptions,
@@ -35,6 +35,7 @@ export type {
   EndpointSpec,
   EventHubLike,
   ApiErrorCode,
+  DeleteBodyMode,
 } from './core/types';
 
 export function createApiClient(options?: ApiOptions): ApiClient {

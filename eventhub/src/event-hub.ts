@@ -12,18 +12,22 @@ interface CancellableWrapper extends AnyHandler {
 function wrapThrottleBoth(fn: AnyHandler, ms: number): CancellableWrapper {
   let lastTime = 0;
   let trailing: ReturnType<typeof setTimeout> | undefined;
+  let lastArgs: unknown[] = [];
   const wrapped: CancellableWrapper = (...args: unknown[]) => {
     const now = Date.now();
     if (now - lastTime >= ms) {
       lastTime = now;
       if (trailing !== undefined) { clearTimeout(trailing); trailing = undefined; }
       if (!wrapped._cancelled) fn(...args);
-    } else if (trailing === undefined) {
-      trailing = setTimeout(() => {
-        trailing = undefined;
-        lastTime = Date.now();
-        if (!wrapped._cancelled) fn(...args);
-      }, ms - (now - lastTime));
+    } else {
+      lastArgs = args;
+      if (trailing === undefined) {
+        trailing = setTimeout(() => {
+          trailing = undefined;
+          lastTime = Date.now();
+          if (!wrapped._cancelled) fn(...lastArgs);
+        }, ms - (now - lastTime));
+      }
     }
   };
   return wrapped;

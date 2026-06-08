@@ -18,6 +18,24 @@ import type {
 } from './core/types';
 import { ApiError } from './core/types';
 
+function calcBodySize(body: unknown): number {
+  if (typeof body === 'string') return new TextEncoder().encode(body).byteLength;
+  if (body instanceof Uint8Array) return body.byteLength;
+  if (body instanceof ArrayBuffer) return body.byteLength;
+  if (body instanceof FormData) {
+    let size = 0;
+    body.forEach((value) => {
+      if (typeof value === 'string') {
+        size += new TextEncoder().encode(value).byteLength;
+      } else if (value instanceof Blob) {
+        size += value.size;
+      }
+    });
+    return size;
+  }
+  return 0;
+}
+
 function mergeRetry(
   perRequest: RequestOptions['retry'],
   clientLevel: ApiOptions['retry'],
@@ -47,6 +65,8 @@ const DEFAULT_OPTIONS: NormalizedRequestOptions = {
   uploadFieldName: null,
   totalTimeout: null,
   maxContentLength: null,
+  maxBodyLength: null,
+  deleteBodyMode: 'query' as const,
   dedup: true,
 };
 
@@ -356,7 +376,20 @@ export class ApiClient {
     cacheKey: string,
     cacheTags: string[],
   ): Promise<T> {
-    // 4. Actually fetch
+    // 4. Check maxBodyLength
+    if (state.options.maxBodyLength != null && state.request.body != null) {
+      const bodySize = calcBodySize(state.request.body);
+      if (bodySize > state.options.maxBodyLength) {
+        throw new ApiError(`Request body too large: ${bodySize} > ${state.options.maxBodyLength}`, {
+          code: 'ERR_MAX_SIZE',
+          status: 0,
+          data: { maxBodyLength: state.options.maxBodyLength, actual: bodySize },
+          request: state.request,
+        });
+      }
+    }
+
+    // 5. Actually fetch
     const response = await this.#adapter.request({
       url: state.request.url,
       method: state.request.method,
@@ -368,6 +401,7 @@ export class ApiClient {
       onUploadProgress: state.options.onUploadProgress ?? undefined,
       onDownloadProgress: state.options.onDownloadProgress ?? undefined,
       uploadFieldName: state.options.uploadFieldName ?? undefined,
+      deleteBodyMode: state.options.deleteBodyMode,
     });
 
     state.response = {
@@ -376,7 +410,7 @@ export class ApiClient {
       headers: response.headers,
     };
 
-    // 5. maxContentLength check
+    // 6. maxContentLength check
     if (state.options.maxContentLength != null) {
       const lenHeader = response.headers['content-length'];
       if (lenHeader) {
@@ -393,7 +427,7 @@ export class ApiClient {
       }
     }
 
-    // 6. Error status check (before schema — 500s shouldn't waste CPU on validation)
+    // 7. Error status check (before schema — 500s shouldn't waste CPU on validation)
     if (!state.options.validateStatus(response.status)) {
       throw new ApiError(`Request failed with status ${response.status}`, {
         code: response.status >= 400 && response.status < 500 ? 'ERR_BAD_REQUEST' : 'ERR_BAD_RESPONSE',
@@ -404,7 +438,7 @@ export class ApiClient {
       });
     }
 
-    // 7. Schema validation (only on successful status)
+    // 8. Schema validation (only on successful status)
     if (state.options.schema) {
       const schema = state.options.schema;
       if (typeof schema.parse === 'function') {
@@ -424,26 +458,26 @@ export class ApiClient {
       }
     }
 
-    // 8. afterResponse hooks
+    // 9. afterResponse hooks
     state = await runAfterResponse(this.#hooks, state);
 
-    // 9. Cache store
+    // 10. Cache store
     if (cacheKey && this.#cache) {
       const cacheOpts = state.options.cache;
       this.#cache.set(cacheKey, state.response!.data, cacheOpts.ttl, cacheTags, cacheOpts.gcTime);
     }
 
-    // 10. Entity cache tags from response
+    // 11. Entity cache tags from response
     if (state.options.entities.length > 0 && state.response?.data) {
       this.#extractEntities(state.options.entities, state.response.data);
     }
 
-    // 11. Invalidate tags
+    // 12. Invalidate tags
     if (state.options.invalidates.length > 0 && this.#cache) {
       this.#cache.invalidateByTags(state.options.invalidates);
     }
 
-    // 12. Dispatch events
+    // 13. Dispatch events
     this.#dispatchEvents(state);
 
     return state.response!.data as T;
@@ -480,6 +514,8 @@ export class ApiClient {
       uploadFieldName: opts.uploadFieldName ?? null,
       totalTimeout: opts.totalTimeout ?? this.#options.totalTimeout ?? DEFAULT_OPTIONS.totalTimeout,
       maxContentLength: opts.maxContentLength ?? this.#options.maxContentLength ?? DEFAULT_OPTIONS.maxContentLength,
+      maxBodyLength: opts.maxBodyLength ?? this.#options.maxBodyLength ?? DEFAULT_OPTIONS.maxBodyLength,
+      deleteBodyMode: opts.deleteBodyMode ?? this.#options.deleteBodyMode ?? DEFAULT_OPTIONS.deleteBodyMode,
       dedup: opts.dedup ?? DEFAULT_OPTIONS.dedup,
     };
   }
@@ -548,7 +584,7 @@ export class ApiClient {
     const status = state.response?.status;
 
     // onSuccess — only fire on actual success, not when error is set
-    if (!state.error && status != null && state.options.validateStatus(status) && state.options.onSuccess.length > 0) {
+    if (state.options.onSuccess.length > 0 && !state.error && status != null && state.options.validateStatus(status)) {
       for (const key of state.options.onSuccess) {
         try { hub.emit(key, data); } catch (err: unknown) {
           if (this.#options.onEventError) this.#options.onEventError(key, err);

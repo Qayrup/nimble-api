@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "tsBuildInfoFile": ".tsbuildinfo",
+    "rootDir": "..",
+    "paths": {
+      "@nimble-api/api-service": ["../api-service/src/index.ts"]
+    }
+  },
+  "include": ["src"],
+  "exclude": ["src/test"]
+}

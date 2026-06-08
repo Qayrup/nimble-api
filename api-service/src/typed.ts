@@ -186,7 +186,9 @@ export function createTypedApi<T extends EndpointSpecs>(
                 st.lastTime = Date.now();
                 void execute(args);
               }, throttleWait - elapsed);
-            } else if (throttleEdge === 'both' && st.trailing === undefined) {
+            } else if (throttleEdge === 'both') {
+              st.lastArgs = reqOpts;
+              if (st.trailing !== undefined) clearTimeout(st.trailing);
               st.trailing = setTimeout(() => {
                 st.trailing = undefined;
                 const args = st.lastArgs ?? reqOpts;

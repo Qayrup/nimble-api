@@ -14,10 +14,11 @@
     "api-service",
     "api-extend",
     "eventhub",
+    "node-adapter",
     "sse-service"
   ],
   "scripts": {
-    "build": "npm run build -w @nimble-api/eventhub && npm run build -w @nimble-api/api-service && npm run build -w @nimble-api/api-extend && npm run build -w @nimble-api/sse-service",
+    "build": "npm run build -w @nimble-api/eventhub && npm run build -w @nimble-api/api-service && npm run build -w @nimble-api/api-extend && npm run build -w @nimble-api/sse-service && npm run build -w @nimble-api/node-adapter",
     "typecheck": "npm run typecheck --workspaces",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"**/*.ts\"",

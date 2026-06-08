@@ -1,0 +1,54 @@
+{
+  "name": "@nimble-api/node-adapter",
+  "version": "1.0.0",
+  "description": "Node.js http/https adapter for @nimble-api/api-service — keepAlive, proxy, redirects, stream, decompress, cookie jar",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "homepage": "https://github.com/qayrup/nimble-api",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/qayrup/nimble-api.git"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "license": "ISC",
+  "author": "qayrup",
+  "keywords": [
+    "qayrup",
+    "nimble-api",
+    "node-adapter",
+    "http",
+    "https",
+    "adapter"
+  ],
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rimraf dist"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "@nimble-api/api-service": "*"
+  },
+  "devDependencies": {
+    "@nimble-api/api-service": "*",
+    "@types/node": "^25.9.2",
+    "tsup": "^8.5.1",
+    "typescript": "5.9"
+  }
+}

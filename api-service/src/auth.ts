@@ -1,11 +1,12 @@
 import type { BeforeRequestHook } from './core/types';
 
+function hasAuthHeader(headers: Record<string, string>): boolean {
+  return 'authorization' in headers || 'Authorization' in headers;
+}
+
 export function createBearerAuth(token: string | (() => string)): BeforeRequestHook {
   return (state) => {
-    // Skip if Authorization header is already set (e.g., custom auth schemes, Basic auth)
-    if (Object.keys(state.request.headers).some(k => k.toLowerCase() === 'authorization')) {
-      return state;
-    }
+    if (hasAuthHeader(state.request.headers)) return state;
     return {
       ...state,
       request: {
@@ -13,6 +14,27 @@ export function createBearerAuth(token: string | (() => string)): BeforeRequestH
         headers: {
           ...state.request.headers,
           Authorization: `Bearer ${typeof token === 'function' ? token() : token}`,
+        },
+      },
+    };
+  };
+}
+
+export function createBasicAuth(
+  username: string | (() => string),
+  password: string | (() => string),
+): BeforeRequestHook {
+  return (state) => {
+    if (hasAuthHeader(state.request.headers)) return state;
+    const u = typeof username === 'function' ? username() : username;
+    const p = typeof password === 'function' ? password() : password;
+    return {
+      ...state,
+      request: {
+        ...state.request,
+        headers: {
+          ...state.request.headers,
+          Authorization: `Basic ${btoa(`${u}:${p}`)}`,
         },
       },
     };

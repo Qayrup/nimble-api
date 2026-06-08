@@ -12,6 +12,10 @@ export interface SchemaValidator {
   safeParse?: (data: unknown) => { success: boolean; data: unknown; error?: unknown };
 }
 
+// === Request Body ===
+
+export type DeleteBodyMode = 'query' | 'json';
+
 // === Entity ===
 
 export interface EntityDef {
@@ -100,7 +104,7 @@ export interface RequestOptions {
   headers?: Record<string, string>;
   signal?: AbortSignal;
   timeout?: number;
-  responseType?: 'json' | 'text' | 'blob' | 'arrayBuffer';
+  responseType?: 'json' | 'text' | 'blob' | 'arrayBuffer' | 'stream';
   retry?: RetryConfig | false;
   cache?: {
     ttl?: number;
@@ -121,6 +125,9 @@ export interface RequestOptions {
   totalTimeout?: number;
   paramsSerializer?: (params: Record<string, unknown>) => string;
   maxContentLength?: number;
+  maxBodyLength?: number;
+  /** Control how DELETE/GET/HEAD/OPTIONS body is handled. 'query' = convert to search params (default), 'json' = send as JSON body. */
+  deleteBodyMode?: DeleteBodyMode;
   /** Limit concurrent calls. true/1 = one-at-a-time; N = allow up to N concurrent. Calls beyond the limit return null. */
   lock?: boolean | number;
   /** Override per-call — debounce in ms, or `{ wait, abort }` to cancel in-flight. `false` to disable */
@@ -136,7 +143,7 @@ export interface RequestOptions {
 export interface NormalizedRequestOptions {
   baseUrl: string;
   timeout: number;
-  responseType: 'json' | 'text' | 'blob' | 'arrayBuffer';
+  responseType: 'json' | 'text' | 'blob' | 'arrayBuffer' | 'stream';
   retry: RetryConfig | false;
   cache: {
     ttl: number;
@@ -156,6 +163,8 @@ export interface NormalizedRequestOptions {
   uploadFieldName: string | null;
   totalTimeout: number | null;
   maxContentLength: number | null;
+  maxBodyLength: number | null;
+  deleteBodyMode: DeleteBodyMode;
   dedup: boolean;
 }
 
@@ -174,6 +183,8 @@ export interface ApiOptions {
   totalTimeout?: number;
   paramsSerializer?: (params: Record<string, unknown>) => string;
   maxContentLength?: number;
+  maxBodyLength?: number;
+  deleteBodyMode?: DeleteBodyMode;
   xsrfCookieName?: string;
   xsrfHeaderName?: string;
   /** Set to false to disable automatic XSRF cookie-to-header injection. Default true. */
@@ -197,11 +208,15 @@ export interface AdapterRequestConfig {
   body?: unknown;
   signal?: AbortSignal;
   timeout?: number;
-  responseType?: 'json' | 'text' | 'blob' | 'arrayBuffer';
+  responseType?: 'json' | 'text' | 'blob' | 'arrayBuffer' | 'stream';
   onUploadProgress?: (progress: { loaded: number; total: number }) => void;
   onDownloadProgress?: (progress: { loaded: number; total: number }) => void;
   /** Form field name for file upload (UniApp adapter). Default `'file'`. */
   uploadFieldName?: string;
+  maxBodyLength?: number;
+  connectTimeout?: number;
+  socketPath?: string;
+  deleteBodyMode?: DeleteBodyMode;
 }
 
 export interface AdapterResponse {

@@ -25,8 +25,11 @@ export function createFetchAdapter(timeout = 30000): RequestAdapter {
         }
       }
 
-      // GET/DELETE: attach body as query string
-      if (body && (method === 'GET' || method === 'DELETE' || method === 'HEAD' || method === 'OPTIONS') && !(body instanceof FormData)) {
+      // GET/HEAD/OPTIONS: attach body as query string always
+      // DELETE: convert to query string only when deleteBodyMode is 'query' (default); 'json' sends as body
+      const isDeleteWithJsonBody = method === 'DELETE' && config.deleteBodyMode === 'json';
+      const bodyToQs = body && (method === 'GET' || method === 'HEAD' || method === 'OPTIONS' || (method === 'DELETE' && config.deleteBodyMode !== 'json')) && !(body instanceof FormData);
+      if (bodyToQs) {
         const sp = new URLSearchParams();
         for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
           if (v != null) {
@@ -37,7 +40,8 @@ export function createFetchAdapter(timeout = 30000): RequestAdapter {
         if (qs) url = url + (url.includes('?') ? '&' : '?') + qs;
       }
 
-      const hasBody = method !== 'GET' && method !== 'DELETE' && method !== 'HEAD' && method !== 'OPTIONS' && body != null;
+      const hasBody = (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS' && body != null) ||
+        (isDeleteWithJsonBody && body != null);
       const isFormData = body instanceof FormData;
       try {
         const res = await fetch(url, {
