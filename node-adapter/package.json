@@ -1,6 +1,9 @@
 {
   "name": "@nimble-api/node-adapter",
-  "version": "1.1.2",
+  "version": "1.0.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "Node.js http/https adapter for @nimble-api/api-service — keepAlive, proxy, redirects, stream, decompress, cookie jar",
   "type": "module",
   "main": "./dist/index.js",

@@ -29,7 +29,8 @@
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
-    "publish:verdaccio": "node scripts/publish-verdaccio.mjs"
+    "publish:verdaccio": "node scripts/publish-verdaccio.mjs",
+    "publish:npm": "node scripts/publish-npm.mjs"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^7.0.0",

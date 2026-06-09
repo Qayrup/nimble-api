@@ -36,6 +36,10 @@ function calcBodySize(body: unknown): number {
   return 0;
 }
 
+function joinUrl(baseUrl: string, path: string): string {
+  return `${baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
+}
+
 function mergeRetry(
   perRequest: RequestOptions['retry'],
   clientLevel: ApiOptions['retry'],
@@ -531,7 +535,7 @@ export class ApiClient {
       if (serializer) {
         const qs = serializer(opts.searchParams as Record<string, unknown>);
         if (qs) url = url + (url.includes('?') ? '&' : '?') + qs;
-        return baseUrl ? baseUrl + url : url;
+        return baseUrl ? joinUrl(baseUrl, url) : url;
       }
       const sp = new URLSearchParams();
       for (const [k, v] of Object.entries(opts.searchParams)) {
@@ -547,7 +551,7 @@ export class ApiClient {
       const qs = sp.toString();
       if (qs) url = url + (url.includes('?') ? '&' : '?') + qs;
     }
-    return baseUrl ? baseUrl + url : url;
+    return baseUrl ? joinUrl(baseUrl, url) : url;
   }
 
   #extractBody(opts: RequestOptions): unknown {
