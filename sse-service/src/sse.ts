@@ -14,6 +14,7 @@ class SSEConnectionImpl implements SSEConnection {
   #reconnectAttempts = 0;
   #lastEventId: string | null = null;
   #buffer = '';
+  #maxBufferSize = 1024 * 1024; // 1MB
 
   constructor(url: string, options: SSEOptions = {}) {
     this.#url = url;
@@ -112,6 +113,11 @@ class SSEConnectionImpl implements SSEConnection {
         }
 
         this.#buffer += decoder.decode(value, { stream: true });
+        if (this.#buffer.length > this.#maxBufferSize) {
+          this.close();
+          this.#notifyError(new Error('SSE buffer exceeded max size (1MB)'));
+          return;
+        }
         this.#parseBuffer();
       }
     } catch (err) {

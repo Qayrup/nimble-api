@@ -21,7 +21,10 @@ export class SimpleCookieJar implements CookieJar {
       for (const entry of entries) {
         if (entry.expires && entry.expires.getTime() <= now) continue;
         if (entry.secure && protocol !== 'https:') continue;
-        if (entry.domain && !hostname.endsWith(entry.domain) && hostname !== entry.domain.replace(/^\./, '')) continue;
+        if (entry.domain) {
+          const d = entry.domain.replace(/^\./, '');
+          if (hostname !== d && !hostname.endsWith('.' + d)) continue;
+        }
         if (entry.path && !pathname.startsWith(entry.path)) continue;
         result.push(entry.value);
       }

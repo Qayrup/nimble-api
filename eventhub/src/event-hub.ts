@@ -1162,7 +1162,8 @@ export class EventHub<T = Record<string, unknown>> {
       } else {
         wrapped = wrapThrottleBoth(wrapped, opts.throttle);
       }
-    } else if (opts?.debounce != null) {
+    }
+    if (opts?.debounce != null) {
       wrapped = wrapDebounce(wrapped, opts.debounce);
     }
     return wrapped;

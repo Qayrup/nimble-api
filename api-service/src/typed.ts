@@ -176,27 +176,14 @@ export function createTypedApi<T extends EndpointSpecs>(
           // 补发请求无接收者，失败无意义，故用 void（非 .catch）标记意图。
           if (throttleEdge === 'trailing' || throttleEdge === 'both') {
             st.lastArgs = reqOpts;
-            if (throttleEdge === 'trailing') {
-              // Reset timer on each call — trailing fires with latest args
-              if (st.trailing !== undefined) clearTimeout(st.trailing);
-              st.trailing = setTimeout(() => {
-                st.trailing = undefined;
-                const args = st.lastArgs ?? reqOpts;
-                st.lastArgs = undefined;
-                st.lastTime = Date.now();
-                void execute(args);
-              }, throttleWait - elapsed);
-            } else if (throttleEdge === 'both') {
-              st.lastArgs = reqOpts;
-              if (st.trailing !== undefined) clearTimeout(st.trailing);
-              st.trailing = setTimeout(() => {
-                st.trailing = undefined;
-                const args = st.lastArgs ?? reqOpts;
-                st.lastArgs = undefined;
-                st.lastTime = Date.now();
-                void execute(args);
-              }, throttleWait - elapsed);
-            }
+            if (st.trailing !== undefined) clearTimeout(st.trailing);
+            st.trailing = setTimeout(() => {
+              st.trailing = undefined;
+              const args = st.lastArgs ?? reqOpts;
+              st.lastArgs = undefined;
+              st.lastTime = Date.now();
+              void execute(args);
+            }, throttleWait - elapsed);
           }
           return Promise.resolve(null);
         }
