@@ -5,7 +5,17 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const BUMP = process.argv[2] ?? 'patch';
+// Parse CLI args
+let BUMP = 'patch';
+let OTP = '';
+for (let i = 2; i < process.argv.length; i++) {
+  const arg = process.argv[i];
+  if (arg.startsWith('--otp=')) {
+    OTP = arg.slice('--otp='.length);
+  } else if (!arg.startsWith('--')) {
+    BUMP = arg;
+  }
+}
 
 // Publish order: deps must come first
 const PACKAGES = [
@@ -59,8 +69,9 @@ for (const name of PACKAGES) {
   }
 
   // 3. Publish to npm public registry
+  const publishCmd = `npm publish -w @nimble-api/${name}${OTP ? ` --otp=${OTP}` : ''}`;
   try {
-    execSync(`npm publish -w @nimble-api/${name}`, {
+    execSync(publishCmd, {
       cwd: path.join(__dirname, '..'),
       stdio: 'inherit',
     });

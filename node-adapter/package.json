@@ -1,6 +1,6 @@
 {
   "name": "@nimble-api/node-adapter",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publishConfig": {
     "access": "public"
   },
@@ -46,10 +46,10 @@
     "node": ">=18"
   },
   "peerDependencies": {
-    "@nimble-api/api-service": "*"
+    "@nimble-api/api-service": "workspace:^"
   },
   "devDependencies": {
-    "@nimble-api/api-service": "*",
+    "@nimble-api/api-service": "workspace:^",
     "@types/node": "^25.9.2",
     "tsup": "^8.5.1",
     "typescript": "5.9"

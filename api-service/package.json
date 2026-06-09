@@ -1,6 +1,6 @@
 {
   "name": "@nimble-api/api-service",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publishConfig": {
     "access": "public"
   },
@@ -48,6 +48,6 @@
     "tsup": "^8.5.1"
   },
   "dependencies": {
-    "@nimble-api/eventhub": "*"
+    "@nimble-api/eventhub": "workspace:^"
   }
 }
