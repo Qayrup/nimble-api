@@ -12,6 +12,10 @@ export interface SSEReconnect {
 
 export interface SSEOptions {
   baseUrl?: string;
+  /** HTTP method. Default 'GET'. Set to 'POST' for streaming APIs that accept a request body. */
+  method?: string;
+  /** Request body for POST requests. Ignored for GET. */
+  body?: string | Record<string, unknown> | FormData;
   headers?: Record<string, string>;
   withCredentials?: boolean;
   params?: Record<string, string | number>;

@@ -95,12 +95,30 @@ class SSEConnectionImpl implements SSEConnection {
       this.#options.signal.addEventListener('abort', () => this.close(), { once: true });
     }
 
+    const method = (this.#options.method ?? 'GET').toUpperCase();
+
     try {
-      const res = await fetch(url, {
+      const fetchInit: RequestInit = {
+        method,
         headers,
         credentials: this.#options.withCredentials ? 'include' : 'same-origin',
         signal: mergedSignal,
-      });
+      };
+
+      if (method !== 'GET' && method !== 'HEAD' && this.#options.body != null) {
+        if (typeof this.#options.body === 'string') {
+          fetchInit.body = this.#options.body;
+        } else if (this.#options.body instanceof FormData) {
+          fetchInit.body = this.#options.body;
+        } else {
+          fetchInit.body = JSON.stringify(this.#options.body);
+          if (!headers['Content-Type'] && !headers['content-type']) {
+            headers['Content-Type'] = 'application/json';
+          }
+        }
+      }
+
+      const res = await fetch(url, fetchInit);
 
       if (!res.ok) {
         throw new Error(`SSE connection failed: ${res.status} ${res.statusText}`);
