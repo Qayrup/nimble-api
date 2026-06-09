@@ -2,7 +2,7 @@
   "name": "@nimble-api/api-extend",
   "version": "1.1.2",
   "license": "ISC",
-  "description": "Extensions for @nimble-api/api-service — polling and other request patterns",
+  "description": "Standalone utility extensions — polling, concurrency limiter, and other async patterns",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

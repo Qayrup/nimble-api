@@ -43,6 +43,13 @@ export function createConcurrencyLimit(limit: number): ConcurrencyLimiter {
   return Object.defineProperties(limiter, {
     running: { get: () => running, enumerable: true },
     pending: { get: () => queue.length, enumerable: true },
-    clear: { value: () => { queue.length = 0; }, enumerable: true },
+    clear: {
+      value: () => {
+        while (queue.length > 0) {
+          queue.shift()!.reject(new Error('Queue cleared'));
+        }
+      },
+      enumerable: true,
+    },
   }) as ConcurrencyLimiter;
 }

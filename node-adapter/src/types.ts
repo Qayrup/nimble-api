@@ -54,4 +54,4 @@ export interface ProxyConfig {
   auth?: { username: string; password: string };
 }
 
-export type ProxyMode = 'env' | 'manual';
+export type ProxyMode = 'env';

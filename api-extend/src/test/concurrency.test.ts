@@ -101,18 +101,17 @@ describe('createConcurrencyLimit', () => {
     expect(limiter.pending).toBe(0);
   });
 
-  it('clear() removes all queued tasks', async () => {
+  it('clear() removes all queued tasks and rejects their promises', async () => {
     const limiter = createConcurrencyLimit(1);
     const executed: number[] = [];
 
-    // Block the only slot
     let unblock!: () => void;
     const p1 = limiter(() => new Promise<void>(r => { unblock = r; }).then(() => { executed.push(1); }));
 
     await new Promise(r => setTimeout(r, 5));
 
     const p2 = limiter(() => { executed.push(2); return Promise.resolve(); });
-    void limiter(() => { executed.push(3); return Promise.resolve(); });
+    const p3 = limiter(() => { executed.push(3); return Promise.resolve(); });
 
     expect(limiter.pending).toBe(2);
 
@@ -121,15 +120,9 @@ describe('createConcurrencyLimit', () => {
 
     unblock();
     await p1;
+    await expect(p2).rejects.toThrow('Queue cleared');
+    await expect(p3).rejects.toThrow('Queue cleared');
     expect(executed).toEqual([1]);
-
-    // p2 and p3 should never resolve (they were cleared, promises hang)
-    // Verify they're still pending by racing with a short timeout
-    const r2 = await Promise.race([
-      p2.then(() => 'resolved'),
-      new Promise(r => setTimeout(r, 20)).then(() => 'timeout'),
-    ]);
-    expect(r2).toBe('timeout');
   });
 
   it('respects limit of 1 (serial execution)', async () => {
