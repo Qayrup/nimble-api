@@ -1,7 +1,10 @@
 import type { BeforeRequestHook } from './core/types';
 
 function hasAuthHeader(headers: Record<string, string>): boolean {
-  return 'authorization' in headers || 'Authorization' in headers;
+  for (const k in headers) {
+    if (k.toLowerCase() === 'authorization') return true;
+  }
+  return false;
 }
 
 export function createBearerAuth(token: string | (() => string)): BeforeRequestHook {

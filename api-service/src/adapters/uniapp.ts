@@ -1,4 +1,5 @@
 import type { RequestAdapter, AdapterRequestConfig, AdapterResponse } from '../core/types';
+import { ApiError } from '../core/types';
 
 type UniRequestFn = (config: Record<string, unknown>) => {
   then?: (...args: unknown[]) => unknown;
@@ -84,7 +85,7 @@ export function createUniAppAdapter(): RequestAdapter {
                 resolve({
                   status: (res.statusCode as number) ?? 200,
                   data: typeof res.data === 'string'
-                    ? (() => { try { return JSON.parse(res.data); } catch { throw new Error(`Invalid JSON response from upload (status ${res.statusCode})`); } })()
+                    ? (() => { try { return JSON.parse(res.data); } catch { throw new ApiError(`Invalid JSON response from upload (status ${res.statusCode})`, { code: 'ERR_BAD_RESPONSE', status: (res.statusCode as number) ?? 0, data: null, request: { url: config.url, method: 'UPLOAD' } }); } })()
                     : res.data,
                   headers: {},
                 });
