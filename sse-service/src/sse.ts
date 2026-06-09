@@ -1,3 +1,4 @@
+import { ReadyState } from './types';
 import type { SSEEvent, SSEOptions, SSEConnection } from './types';
 
 type AnyHandler = (...args: unknown[]) => void;
@@ -8,13 +9,19 @@ class SSEConnectionImpl implements SSEConnection {
   #abortController: AbortController | null = null;
   #handlers = new Map<string, Set<AnyHandler>>();
   #messageHandlers = new Set<(event: string, data: unknown) => void>();
+  #openHandlers = new Set<() => void>();
   #errorHandlers = new Set<(error: Error) => void>();
   #closeHandlers = new Set<() => void>();
-  #closed = false;
+  #readyState = ReadyState.CONNECTING;
+  get #closed(): boolean { return this.#readyState === ReadyState.CLOSED; }
   #reconnectAttempts = 0;
   #lastEventId: string | null = null;
   #buffer = '';
   #maxBufferSize = 1024 * 1024; // 1MB
+  #serverRetry: number | null = null;
+
+  get readyState(): ReadyState { return this.#readyState; }
+  get url(): string { return this.#url; }
 
   constructor(url: string, options: SSEOptions = {}) {
     this.#url = url;
@@ -36,6 +43,11 @@ class SSEConnectionImpl implements SSEConnection {
     return () => { this.#messageHandlers.delete(handler); };
   }
 
+  onOpen(handler: () => void): () => void {
+    this.#openHandlers.add(handler);
+    return () => { this.#openHandlers.delete(handler); };
+  }
+
   onError(handler: (error: Error) => void): () => void {
     this.#errorHandlers.add(handler);
     return () => { this.#errorHandlers.delete(handler); };
@@ -47,7 +59,7 @@ class SSEConnectionImpl implements SSEConnection {
   }
 
   close(): void {
-    this.#closed = true;
+    this.#readyState = ReadyState.CLOSED;
     this.#abortController?.abort();
     this.#notifyClose();
   }
@@ -100,6 +112,8 @@ class SSEConnectionImpl implements SSEConnection {
       }
 
       this.#reconnectAttempts = 0;
+      this.#readyState = ReadyState.OPEN;
+      this.#notifyOpen();
       const reader = res.body?.getReader();
       if (!reader) throw new Error('ReadableStream not supported');
 
@@ -167,7 +181,11 @@ class SSEConnectionImpl implements SSEConnection {
         case 'event': eventType = value; explicitEvent = true; break;
         case 'data': dataLines.push(value); break;
         case 'id': id = value; break;
-        case 'retry': /* reconnect interval handled by reconnect config */ break;
+        case 'retry': {
+          const ms = parseInt(value, 10);
+          if (!isNaN(ms) && ms > 0) this.#serverRetry = ms;
+          break;
+        }
       }
     }
   }
@@ -199,11 +217,12 @@ class SSEConnectionImpl implements SSEConnection {
   }
 
   #scheduleReconnect(): void {
+    this.#readyState = ReadyState.CONNECTING;
     const cfg = this.#options.reconnect;
     if (cfg === false) return;
 
     const maxAttempts = (cfg && typeof cfg === 'object' ? cfg.maxAttempts : undefined) ?? Infinity;
-    const interval = (cfg && typeof cfg === 'object' ? cfg.interval : undefined) ?? 3000;
+    const interval = (cfg && typeof cfg === 'object' ? cfg.interval : undefined) ?? this.#serverRetry ?? 3000;
 
     this.#reconnectAttempts++;
     if (this.#reconnectAttempts >= maxAttempts) {
@@ -217,6 +236,12 @@ class SSEConnectionImpl implements SSEConnection {
   #notifyError(err: Error): void {
     for (const h of this.#errorHandlers) {
       try { h(err); } catch { /* handler errors are silent */ }
+    }
+  }
+
+  #notifyOpen(): void {
+    for (const h of this.#openHandlers) {
+      try { h(); } catch { /* handler errors are silent */ }
     }
   }
 

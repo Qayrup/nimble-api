@@ -19,9 +19,18 @@ export interface SSEOptions {
   signal?: AbortSignal;
 }
 
+export enum ReadyState {
+  CONNECTING = 0,
+  OPEN = 1,
+  CLOSED = 2,
+}
+
 export interface SSEConnection {
+  readonly readyState: ReadyState;
+  readonly url: string;
   on<T = unknown>(event: string, handler: (data: T) => void): () => void;
   onMessage(handler: (event: string, data: unknown) => void): () => void;
+  onOpen(handler: () => void): () => void;
   onError(handler: (error: Error) => void): () => void;
   onClose(handler: () => void): () => void;
   close(): void;
