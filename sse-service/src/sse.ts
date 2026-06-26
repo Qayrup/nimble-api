@@ -19,6 +19,7 @@ class SSEConnectionImpl implements SSEConnection {
   #buffer = '';
   #maxBufferSize = 1024 * 1024; // 1MB
   #serverRetry: number | null = null;
+  #signalOnAbort: (() => void) | null = null;
 
   get readyState(): ReadyState { return this.#readyState; }
   get url(): string { return this.#url; }
@@ -59,6 +60,10 @@ class SSEConnectionImpl implements SSEConnection {
   }
 
   close(): void {
+    if (this.#signalOnAbort) {
+      this.#options.signal?.removeEventListener('abort', this.#signalOnAbort);
+      this.#signalOnAbort = null;
+    }
     this.#readyState = ReadyState.CLOSED;
     this.#abortController?.abort();
     this.#notifyClose();
@@ -91,8 +96,17 @@ class SSEConnectionImpl implements SSEConnection {
     const mergedSignal = this.#abortController.signal;
 
     if (this.#options.signal) {
-      if (this.#options.signal.aborted) return;
-      this.#options.signal.addEventListener('abort', () => this.close(), { once: true });
+      if (this.#options.signal.aborted) {
+        this.#readyState = ReadyState.CLOSED;
+        this.#notifyError(new Error('SSE connection aborted'));
+        return;
+      }
+      // Remove stale listener from a previous connection before adding a new one
+      if (this.#signalOnAbort) {
+        this.#options.signal.removeEventListener('abort', this.#signalOnAbort);
+      }
+      this.#signalOnAbort = () => this.close();
+      this.#options.signal.addEventListener('abort', this.#signalOnAbort, { once: true });
     }
 
     const method = (this.#options.method ?? 'GET').toUpperCase();
@@ -160,16 +174,17 @@ class SSEConnectionImpl implements SSEConnection {
   }
 
   #parseBuffer(): void {
-    const lines = this.#buffer.split('\n');
-    this.#buffer = lines.pop() ?? '';
-
     let eventType = 'message';
     let dataLines: string[] = [];
     let id: string | undefined;
     let explicitEvent = false;
 
-    for (const rawLine of lines) {
-      const line = rawLine.trimEnd();
+    // Scan line by line without allocating a split array — SSE can be high frequency
+    let start = 0;
+    let idx: number;
+    while ((idx = this.#buffer.indexOf('\n', start)) !== -1) {
+      const line = this.#buffer.slice(start, idx).trimEnd();
+      start = idx + 1;
 
       if (line === '') {
         if (dataLines.length > 0) {
@@ -189,7 +204,16 @@ class SSEConnectionImpl implements SSEConnection {
       if (line.startsWith(':')) continue; // Comment
 
       const colonIdx = line.indexOf(':');
-      if (colonIdx === -1) continue;
+      if (colonIdx === -1) {
+        // Field name without colon — value is empty string (SSE spec)
+        switch (line) {
+          case 'event': eventType = ''; explicitEvent = true; break;
+          case 'data': dataLines.push(''); break;
+          case 'id': id = ''; break;
+          case 'retry': break; // retry without value is ignored
+        }
+        continue;
+      }
 
       const field = line.slice(0, colonIdx);
       let value = line.slice(colonIdx + 1);
@@ -206,6 +230,8 @@ class SSEConnectionImpl implements SSEConnection {
         }
       }
     }
+
+    this.#buffer = this.#buffer.slice(start);
   }
 
   #parseData(raw: string): unknown {

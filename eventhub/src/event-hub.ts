@@ -48,20 +48,17 @@ function wrapThrottleLeading(fn: AnyHandler, ms: number): CancellableWrapper {
 function wrapThrottleTrailing(fn: AnyHandler, ms: number): CancellableWrapper {
   let lastTime = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let lastArgs: unknown[] = [];
   const wrapped: CancellableWrapper = (...args: unknown[]) => {
-    const now = Date.now();
-    if (now - lastTime >= ms) {
-      lastTime = now;
-      if (timer !== undefined) { clearTimeout(timer); timer = undefined; }
-      if (!wrapped._cancelled) fn(...args);
-    } else {
-      if (timer !== undefined) clearTimeout(timer);
-      timer = setTimeout(() => {
-        timer = undefined;
-        lastTime = Date.now();
-        if (!wrapped._cancelled) fn(...args);
-      }, ms - (now - lastTime));
-    }
+    lastArgs = args;
+    if (timer !== undefined) return;
+    const elapsed = Date.now() - lastTime;
+    const delay = lastTime === 0 ? ms : Math.max(0, ms - elapsed);
+    timer = setTimeout(() => {
+      timer = undefined;
+      lastTime = Date.now();
+      if (!wrapped._cancelled) fn(...lastArgs);
+    }, delay);
   };
   return wrapped;
 }
@@ -135,6 +132,7 @@ export class EventHub<T = Record<string, unknown>> {
   #handlers = new Map<string, HandlerRecord[]>();
   #anyHandlers: HandlerRecord[] = [];
   #wildcardHandlers: WildcardRecord[] = [];
+  #regexCache = new Map<string, RegExp>();
   #destroyed = false;
   #emittingMeta = false;
   #maxListeners: number = Infinity;
@@ -300,7 +298,11 @@ export class EventHub<T = Record<string, unknown>> {
       throw new TypeError(`[@nimble-api/eventhub] Handler must be a function, got ${typeof handler}`);
     }
 
-    const regex = globToRegex(pattern, this.#delimiter);
+    let regex = this.#regexCache.get(pattern);
+    if (!regex) {
+      regex = globToRegex(pattern, this.#delimiter);
+      this.#regexCache.set(pattern, regex);
+    }
     const raw = this.#wrapHandler(handler as AnyHandler, opts);
     const record: HandlerRecord = { raw, original: handler as AnyHandler };
     const wc: WildcardRecord = { pattern, regex, record };
@@ -908,6 +910,7 @@ export class EventHub<T = Record<string, unknown>> {
     this.#anyHandlers.length = 0;
     this.#wildcardHandlers.length = 0;
     this.#warned.clear();
+    this.#regexCache.clear();
   }
 
   dispose(): void {
@@ -921,6 +924,7 @@ export class EventHub<T = Record<string, unknown>> {
     this.#anyHandlers.length = 0;
     this.#wildcardHandlers.length = 0;
     this.#warned.clear();
+    this.#regexCache.clear();
   }
 
   [Symbol.dispose](): void {
@@ -1116,8 +1120,15 @@ export class EventHub<T = Record<string, unknown>> {
     if (list.length === 0) return;
     const records = list.slice();
     for (const record of records) {
-      this.#removeHandler(event, list, record);
+      if (!this.#emittingMeta) {
+        this.#emitMeta('beforeListenerRemove', { event, handler: record.original }, { throwOnError: true });
+      }
+      this.#cancelHandler(record);
+      if (!this.#emittingMeta) {
+        this.#emitMeta('listenerRemoved', { event });
+      }
     }
+    list.length = 0;
   }
 
   #removeAllSilent(_event: string, list: HandlerRecord[]): void {

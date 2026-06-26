@@ -1,11 +1,13 @@
 import type { RequestAdapter, AdapterRequestConfig, AdapterResponse } from '../core/types';
 import { ApiError } from '../core/types';
+import { bodyToQueryString } from '../utils/body-to-qs';
 
 export function createFetchAdapter(timeout = 30000): RequestAdapter {
   return {
     async request(config: AdapterRequestConfig): Promise<AdapterResponse> {
       let { url } = config;
-      const { method, headers, body } = config;
+      const { method, headers } = config;
+      let { body } = config;
 
       const controller = new AbortController();
       let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -30,14 +32,9 @@ export function createFetchAdapter(timeout = 30000): RequestAdapter {
       const isDeleteWithJsonBody = method === 'DELETE' && config.deleteBodyMode === 'json';
       const bodyToQs = body && (method === 'GET' || method === 'HEAD' || method === 'OPTIONS' || (method === 'DELETE' && config.deleteBodyMode !== 'json')) && !(body instanceof FormData);
       if (bodyToQs) {
-        const sp = new URLSearchParams();
-        for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
-          if (v != null) {
-            sp.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
-          }
-        }
-        const qs = sp.toString();
+        const qs = bodyToQueryString(body);
         if (qs) url = url + (url.includes('?') ? '&' : '?') + qs;
+        body = undefined;
       }
 
       const hasBody = (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS' && body != null) ||

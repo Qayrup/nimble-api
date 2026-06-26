@@ -1,5 +1,6 @@
 import type { RequestAdapter, AdapterRequestConfig, AdapterResponse } from '../core/types';
 import { ApiError } from '../core/types';
+import { bodyToQueryString } from '../utils/body-to-qs';
 
 type UniRequestFn = (config: Record<string, unknown>) => {
   then?: (...args: unknown[]) => unknown;
@@ -36,11 +37,7 @@ export function createUniAppAdapter(): RequestAdapter {
       let { body } = config;
 
       if (body && (method === 'GET' || method === 'DELETE' || method === 'HEAD' || method === 'OPTIONS') && !(body instanceof FormData)) {
-        const sp = new URLSearchParams();
-        for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
-          if (v != null) sp.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
-        }
-        const qs = sp.toString();
+        const qs = bodyToQueryString(body);
         if (qs) url = url + (url.includes('?') ? '&' : '?') + qs;
         body = undefined;
       }

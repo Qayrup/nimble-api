@@ -8,6 +8,5 @@
       "@nimble-api/eventhub": ["../eventhub/src/index.ts"]
     }
   },
-  "include": ["src"],
-  "exclude": ["src/test"]
+  "include": ["src"]
 }

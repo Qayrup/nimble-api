@@ -1,5 +1,6 @@
 import type { RequestAdapter, AdapterRequestConfig, AdapterResponse } from '../core/types';
 import { ApiError } from '../core/types';
+import { bodyToQueryString } from '../utils/body-to-qs';
 
 export function createXhrAdapter(timeout = 30000): RequestAdapter {
   return {
@@ -11,11 +12,7 @@ export function createXhrAdapter(timeout = 30000): RequestAdapter {
         const isDeleteWithJsonBody = config.method === 'DELETE' && config.deleteBodyMode === 'json';
         const bodyToQs = reqBody && (config.method === 'GET' || config.method === 'HEAD' || config.method === 'OPTIONS' || (config.method === 'DELETE' && config.deleteBodyMode !== 'json')) && !(reqBody instanceof FormData);
         if (bodyToQs) {
-          const sp = new URLSearchParams();
-          for (const [k, v] of Object.entries(reqBody as Record<string, unknown>)) {
-            if (v != null) sp.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
-          }
-          const qs = sp.toString();
+          const qs = bodyToQueryString(reqBody);
           if (qs) reqUrl = reqUrl + (reqUrl.includes('?') ? '&' : '?') + qs;
           reqBody = undefined;
         } else if (isDeleteWithJsonBody && reqBody != null) {
@@ -143,7 +140,12 @@ export function createXhrAdapter(timeout = 30000): RequestAdapter {
         };
 
         // Body
-        if (reqBody != null && config.method !== 'GET' && config.method !== 'DELETE' && config.method !== 'HEAD' && config.method !== 'OPTIONS') {
+        const shouldSendBody = reqBody != null &&
+          config.method !== 'GET' &&
+          config.method !== 'HEAD' &&
+          config.method !== 'OPTIONS' &&
+          (config.method !== 'DELETE' || isDeleteWithJsonBody);
+        if (shouldSendBody) {
           if (reqBody instanceof FormData) {
             xhr.send(reqBody);
           } else {

@@ -89,7 +89,7 @@ export interface Hooks {
 
 export interface RequestOptions {
   params?: Record<string, string | number>;
-  searchParams?: Record<string, string | number | (string | number)[] | null | undefined>;
+  searchParams?: Record<string, string | number | boolean | (string | number | boolean)[] | null | undefined>;
   json?: unknown;
   form?: FormData;
   text?: string;

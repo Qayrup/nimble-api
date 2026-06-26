@@ -1064,20 +1064,21 @@ describe('EventHub core', () => {
       vi.useRealTimers();
     });
 
-    it('trailing — defers to end of window, no initial fire', () => {
+    it('trailing — defers all calls to end of window, no leading fire', () => {
       vi.useFakeTimers();
       const hub = createTestHub();
       const handler = vi.fn();
       hub.on('user:login', handler, { throttle: 100, throttleEdge: 'trailing' });
 
       hub.emit('user:login', { userId: '1', timestamp: 1 });
-      expect(handler).toHaveBeenCalledTimes(1); // first call: window was open (lastTime=0)
+      expect(handler).toHaveBeenCalledTimes(0); // pure trailing: first call deferred
 
       hub.emit('user:login', { userId: '2', timestamp: 2 });
-      expect(handler).toHaveBeenCalledTimes(1); // still in window
+      expect(handler).toHaveBeenCalledTimes(0); // timer pending, args updated
 
       vi.advanceTimersByTime(150);
-      expect(handler).toHaveBeenCalledTimes(2); // trailing fired
+      expect(handler).toHaveBeenCalledTimes(1); // trailing fired with last args
+      expect(handler).toHaveBeenCalledWith({ userId: '2', timestamp: 2 });
       vi.useRealTimers();
     });
 

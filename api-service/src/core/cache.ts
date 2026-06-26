@@ -16,6 +16,7 @@ export class MemoryCache {
     this.#maxSize = maxSize;
   }
 
+  /** Returns cached data if fresh (within staleTime and gcTime). Bumps LRU position on hit. */
   get(key: string): unknown | undefined {
     const entry = this.#store.get(key);
     if (!entry) return undefined;
@@ -100,6 +101,7 @@ export class MemoryCache {
     if (entry) this.#removeEntry(key, entry);
   }
 
+  /** Returns true if the key exists and is fresh. Does NOT bump LRU — use get() if you need access tracking. */
   has(key: string): boolean {
     const entry = this.#store.get(key);
     if (!entry) return false;
@@ -161,8 +163,8 @@ export class MemoryCache {
         key,
         data: entry.data,
         timestamp: entry.timestamp,
-        staleTime: entry.staleTime,
-        gcTime: entry.gcTime,
+        staleTime: entry.staleTime === Infinity ? 'Infinity' : entry.staleTime,
+        gcTime: entry.gcTime === Infinity ? 'Infinity' : entry.gcTime,
         lastAccess: entry.lastAccess,
         tags: entry.tags,
       });
@@ -183,8 +185,8 @@ export class MemoryCache {
         key: string;
         data: unknown;
         timestamp: number;
-        staleTime: number;
-        gcTime: number;
+        staleTime: number | 'Infinity';
+        gcTime: number | 'Infinity';
         lastAccess: number;
         tags: string[];
       }>;
@@ -193,6 +195,16 @@ export class MemoryCache {
 
     if (!state || !Array.isArray(state.entries)) return false;
 
+    // Validate all entries before clearing — reject the whole import if any field is corrupt
+    for (const item of state.entries) {
+      if (typeof item.key !== 'string') return false;
+      if (!Number.isFinite(item.timestamp)) return false;
+      if (!Number.isFinite(item.lastAccess)) return false;
+      if (item.staleTime !== 'Infinity' && !(typeof item.staleTime === 'number' && Number.isFinite(item.staleTime))) return false;
+      if (item.gcTime !== 'Infinity' && !(typeof item.gcTime === 'number' && Number.isFinite(item.gcTime))) return false;
+      if (!Array.isArray(item.tags)) return false;
+    }
+
     this.clear();
     this.#maxSize = state.maxSize ?? Infinity;
 
@@ -200,8 +212,8 @@ export class MemoryCache {
       const entry: CacheEntry = {
         data: item.data,
         timestamp: item.timestamp,
-        staleTime: item.staleTime ?? Infinity,
-        gcTime: item.gcTime ?? Infinity,
+        staleTime: item.staleTime === 'Infinity' ? Infinity : (item.staleTime as number),
+        gcTime: item.gcTime === 'Infinity' ? Infinity : (item.gcTime as number),
         lastAccess: item.lastAccess,
         tags: item.tags,
       };

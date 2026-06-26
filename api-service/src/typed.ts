@@ -10,12 +10,18 @@ type HasSuppression<T> = T extends { debounce: number | { wait: number } } ? tru
 
 type SuppressReturn<T, Spec> = HasSuppression<Spec> extends true ? T | null : T;
 
+/** Typed API opts — replaces low-level json/form/text with a unified body convenience field */
+type TypedApiOpts = { body?: unknown } & Omit<RequestOptions, 'json' | 'form' | 'text'>;
+
 export type TypedApi<T extends EndpointSpecs> = {
   [K in keyof T & string]: (
-    ...args: NonNullable<T[K]['_params']> extends Record<string, string | number>
-      ? [opts: { params: NonNullable<T[K]['_params']> } & Omit<RequestOptions, 'json' | 'form' | 'text'>]
-      : [opts?: Omit<RequestOptions, 'json' | 'form' | 'text'>]
+    ...args: T[K]['_params'] extends Record<string, string | number>
+      ? [opts: { params: T[K]['_params'] } & TypedApiOpts]
+      : [opts?: TypedApiOpts]
   ) => Promise<SuppressReturn<NonNullable<T[K]['_response']>, T[K]>>
+} & {
+  /** 清理所有内部 timer、Map 和 lock 计数。多实例场景下，切换实例前调用旧实例的 dispose() 可防止资源泄漏。单例长期持有则无需调用。 */
+  dispose(): void;
 };
 
 function mergeSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
@@ -200,6 +206,23 @@ export function createTypedApi<T extends EndpointSpecs>(
       return execute(reqOpts);
     }) as TypedApi<T>[typeof name];
   }
+
+  // dispose() — 清理内部 timer 和 Map。多实例场景（如每次路由切换创建新实例）下，
+  // debounce/throttle timer 会把旧实例的闭包链撑住不放，调用 dispose() 可立即释放。
+  // 单例长期持有则无需关心。
+  (api as Record<string, unknown>).dispose = () => {
+    for (const st of debounceStates.values()) {
+      if (st.timer !== undefined) clearTimeout(st.timer);
+      st.lastResolve?.(null);
+      st.controller?.abort();
+    }
+    debounceStates.clear();
+    for (const st of throttleStates.values()) {
+      if (st.trailing !== undefined) clearTimeout(st.trailing);
+    }
+    throttleStates.clear();
+    locks.clear();
+  };
 
   return api;
 }

@@ -4,7 +4,7 @@ import { resolveProxy } from './proxy';
 import { isRedirect, buildRedirectUrl, methodAfterRedirect, shouldKeepBody } from './redirect';
 import { calcBodySize } from './utils/body-size';
 import type { NodeAdapterOptions, CookieJar } from './types';
-import type { RequestAdapter, AdapterRequestConfig, AdapterResponse } from '@nimble-api/api-service';
+import { ApiError, type RequestAdapter, type AdapterRequestConfig, type AdapterResponse } from '@nimble-api/api-service';
 
 interface ResolvedOptions {
   keepAlive: boolean;
@@ -410,7 +410,13 @@ export function createNodeAdapter(options: NodeAdapterOptions = {}): RequestAdap
           } catch {
             // For non-success statuses, return raw text rather than failing
             if (status >= 200 && status < 300) {
-              reject(new Error(`Invalid JSON response from ${config.url}`));
+              reject(new ApiError(`Invalid JSON response from ${config.url}`, {
+                code: 'ERR_BAD_RESPONSE',
+                status,
+                data: null,
+                request: { url: config.url, method: config.method },
+                response: { status, headers: resHeaders },
+              }));
               return;
             }
             data = raw.toString('utf8');

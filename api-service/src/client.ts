@@ -209,7 +209,7 @@ export class ApiClient {
     }
 
     // cacheKey = '' when ttl <= 0 — acts as sentinel: all downstream if(cacheKey) checks skip caching
-    const cacheKey = normalized.cache.ttl > 0
+    const cacheKey = normalized.cache.ttl > 0 && !normalized.cache.skip
       ? generateCacheKey(rawUrl, opts.params ?? {}, body ?? {})
       : '';
 
