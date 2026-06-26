@@ -441,6 +441,7 @@ export class EventHub<T = Record<string, unknown>> {
         }, opts.timeout);
       }
 
+      // 先检查再 addEventListener 的模式在单线程 JS 中不存在竞态窗口（abort 只能通过 microtask/macrotask 触发）。先监听再检查的模式也可以，但当前顺序等价且更直观。
       if (signal) {
         if (signal.aborted) {
           onAbort();

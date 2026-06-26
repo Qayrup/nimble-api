@@ -54,6 +54,7 @@ export function createTypedApi<T extends EndpointSpecs>(
   const api = {} as TypedApi<T>;
   const locks = new Map<string, number>();
   const debounceStates = new Map<string, DebounceState>();
+  // throttle state 在调用之间持久保留——lastTime 是节流窗口的基准，必须跨调用记录。单例场景下可忽略；多实例场景请调用 dispose() 清理。
   const throttleStates = new Map<string, ThrottleState>();
 
   for (const name of Object.keys(endpoints) as (keyof T & string)[]) {

@@ -193,7 +193,7 @@ export class ApiClient {
       ...this.#options.headers,
       ...opts.headers,
     };
-    if (body != null && !(body instanceof FormData) && method !== 'GET' && method !== 'DELETE' && method !== 'HEAD' && method !== 'OPTIONS') {
+    if (body != null && !(body instanceof FormData) && method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS' && (method !== 'DELETE' || opts.deleteBodyMode === 'json')) {
       headers['Content-Type'] = 'application/json';
     }
 

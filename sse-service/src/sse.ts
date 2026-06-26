@@ -154,6 +154,7 @@ class SSEConnectionImpl implements SSEConnection {
       while (true) {
         const { done, value } = await reader.read();
         if (done) {
+          // SSE 协议预期行为：流关闭后自动重连（浏览器原生 EventSource 同）。控制：reconnect: false 禁用，reconnect.maxAttempts 限制次数。
           if (!this.#closed) this.#scheduleReconnect();
           break;
         }

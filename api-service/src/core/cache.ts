@@ -60,6 +60,7 @@ export class MemoryCache {
   }
 
   set(key: string, value: unknown, staleTime: number, tags: string[] = [], gcTime?: number): void {
+    // gcTime 控制"未被访问"的条目多久后被 GC 回收。默认 Infinity 意味着只要 staleTime 检查能命中的条目就不会被 GC——这是刻意设计，与 TanStack Query 等主流库一致。staleTime 过期后 get() 会主动删除条目，不会无限堆积。
     const effectiveGcTime = gcTime ?? Infinity;
 
     // Evict if at capacity (remove LRU = first key in Map)
@@ -101,7 +102,7 @@ export class MemoryCache {
     if (entry) this.#removeEntry(key, entry);
   }
 
-  /** Returns true if the key exists and is fresh. Does NOT bump LRU — use get() if you need access tracking. */
+  /** Returns true if the key exists and is fresh. Does NOT bump LRU — use get() if you need access tracking. Lazy gcTime/staleTime cleanup on check is intentional (same as get()). */
   has(key: string): boolean {
     const entry = this.#store.get(key);
     if (!entry) return false;
