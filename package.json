@@ -19,7 +19,7 @@
     "oidc"
   ],
   "scripts": {
-    "build": "npm run build -w @nimble-api/eventhub && npm run build -w @nimble-api/api-service && npm run build -w @nimble-api/api-extend && npm run build -w @nimble-api/sse-service && npm run build -w @nimble-api/node-adapter",
+    "build": "npm run build -w @nimble-api/eventhub && npm run build -w @nimble-api/api-service && npm run build -w @nimble-api/api-extend && npm run build -w @nimble-api/sse-service && npm run build -w @nimble-api/node-adapter && npm run build -w @nimble-api/oidc",
     "typecheck": "npm run typecheck --workspaces",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"**/*.ts\"",
