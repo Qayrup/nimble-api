@@ -1,19 +1,14 @@
 {
-  "name": "@nimble-api/node-adapter",
-  "version": "1.0.1",
+  "name": "@nimble-api/oidc",
+  "version": "1.0.0",
   "publishConfig": {
     "access": "public"
   },
-  "description": "Node.js http/https adapter for @nimble-api/api-service — keepAlive, proxy, redirects, stream, decompress, cookie jar",
+  "description": "OAuth 2.0 / OIDC client with PKCE for nimble-api",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
-  "homepage": "https://github.com/qayrup/nimble-api",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/qayrup/nimble-api.git"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -24,14 +19,6 @@
   "sideEffects": false,
   "license": "ISC",
   "author": "qayrup",
-  "keywords": [
-    "qayrup",
-    "nimble-api",
-    "node-adapter",
-    "http",
-    "https",
-    "adapter"
-  ],
   "files": [
     "dist",
     "README.md"
@@ -40,7 +27,7 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "clean": "rimraf dist"
+    "clean": "rimraf dist tsconfig.tsbuildinfo"
   },
   "engines": {
     "node": ">=18"
@@ -48,10 +35,14 @@
   "peerDependencies": {
     "@nimble-api/api-service": "*"
   },
+  "peerDependenciesMeta": {
+    "@nimble-api/api-service": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@nimble-api/api-service": "*",
-    "@types/node": "^25.9.2",
-    "tsup": "^8.5.1",
+    "tsup": "^8.5.0",
     "typescript": "5.9"
   }
 }

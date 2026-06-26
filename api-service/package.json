@@ -48,6 +48,6 @@
     "tsup": "^8.5.1"
   },
   "dependencies": {
-    "@nimble-api/eventhub": "workspace:^"
+    "@nimble-api/eventhub": "*"
   }
 }

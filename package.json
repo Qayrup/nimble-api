@@ -15,7 +15,8 @@
     "api-extend",
     "eventhub",
     "node-adapter",
-    "sse-service"
+    "sse-service",
+    "oidc"
   ],
   "scripts": {
     "build": "npm run build -w @nimble-api/eventhub && npm run build -w @nimble-api/api-service && npm run build -w @nimble-api/api-extend && npm run build -w @nimble-api/sse-service && npm run build -w @nimble-api/node-adapter",
@@ -43,6 +44,6 @@
     "vitest": "^4.1.8"
   },
   "volta": {
-    "node": "24.16.0",
-    "npm": "10.2.3"
-  }}
+    "node": "22.23.1"
+  }
+}
