@@ -48,4 +48,69 @@ describe('SessionSync', () => {
     tabA.close();
     tabB.close();
   });
+
+  it('calls probe handler when receiving token_probe', async () => {
+    const probeHandler = vi.fn();
+    const tabA = new SessionSync('test-probe');
+    tabA.onProbe(probeHandler);
+
+    const tabB = new SessionSync('test-probe');
+    tabB.sendProbe();
+
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(probeHandler).toHaveBeenCalled();
+
+    tabA.close();
+    tabB.close();
+  });
+
+  it('waitForSync resolves after receiving token_sync', async () => {
+    const tabA = new SessionSync('test-wait');
+    const tabB = new SessionSync('test-wait');
+
+    const token = makeToken();
+    let resolved = false;
+    const syncPromise = tabA.waitForSync(300).then(() => { resolved = true; });
+
+    // Tab B broadcasts token after a short delay (simulating probe response)
+    await new Promise((r) => setTimeout(r, 10));
+    tabB.broadcast(token, 'login');
+
+    await syncPromise;
+    expect(resolved).toBe(true);
+
+    tabA.close();
+    tabB.close();
+  });
+
+  it('waitForSync resolves after timeout if no broadcast', async () => {
+    const tab = new SessionSync('test-timeout');
+
+    const start = Date.now();
+    await tab.waitForSync(100);
+    const elapsed = Date.now() - start;
+
+    // Should have waited approximately the timeout period
+    expect(elapsed).toBeGreaterThanOrEqual(80);
+
+    tab.close();
+  });
+
+  it('probe handler unsubscription works', async () => {
+    const handler = vi.fn();
+    const tabA = new SessionSync('test-probe-unsub');
+    const unsub = tabA.onProbe(handler);
+    unsub();
+
+    const tabB = new SessionSync('test-probe-unsub');
+    tabB.sendProbe();
+
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(handler).not.toHaveBeenCalled();
+
+    tabA.close();
+    tabB.close();
+  });
 });
