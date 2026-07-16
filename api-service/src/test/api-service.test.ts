@@ -429,16 +429,16 @@ describe('extend()', () => {
 // ============================================================
 
 describe('Lifecycle', () => {
-  it('dispose prevents further operations', () => {
+  it('dispose prevents further operations', async () => {
     const client = makeClient();
     client.dispose();
-    expect(() => client.get('/api/data')).rejects.toThrow('destroyed');
+    await expect(client.get('/api/data')).rejects.toThrow('destroyed');
   });
 
-  it('[Symbol.dispose] disposes', () => {
+  it('[Symbol.dispose] disposes', async () => {
     const client = makeClient();
     client[Symbol.dispose]();
-    expect(() => client.get('/api/data')).rejects.toThrow('destroyed');
+    await expect(client.get('/api/data')).rejects.toThrow('destroyed');
   });
 });
 

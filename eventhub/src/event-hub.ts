@@ -5,25 +5,25 @@ type AnyHandler = (...args: unknown[]) => void;
 
 interface CancellableWrapper extends AnyHandler {
   _cancelled?: boolean;
+  _timer?: ReturnType<typeof setTimeout>;
 }
 
 // === throttle 策略 ===
 
 function wrapThrottleBoth(fn: AnyHandler, ms: number): CancellableWrapper {
   let lastTime = 0;
-  let trailing: ReturnType<typeof setTimeout> | undefined;
   let lastArgs: unknown[] = [];
   const wrapped: CancellableWrapper = (...args: unknown[]) => {
     const now = Date.now();
     if (now - lastTime >= ms) {
       lastTime = now;
-      if (trailing !== undefined) { clearTimeout(trailing); trailing = undefined; }
+      if (wrapped._timer !== undefined) { clearTimeout(wrapped._timer); wrapped._timer = undefined; }
       if (!wrapped._cancelled) fn(...args);
     } else {
       lastArgs = args;
-      if (trailing === undefined) {
-        trailing = setTimeout(() => {
-          trailing = undefined;
+      if (wrapped._timer === undefined) {
+        wrapped._timer = setTimeout(() => {
+          wrapped._timer = undefined;
           lastTime = Date.now();
           if (!wrapped._cancelled) fn(...lastArgs);
         }, ms - (now - lastTime));
@@ -47,15 +47,14 @@ function wrapThrottleLeading(fn: AnyHandler, ms: number): CancellableWrapper {
 
 function wrapThrottleTrailing(fn: AnyHandler, ms: number): CancellableWrapper {
   let lastTime = 0;
-  let timer: ReturnType<typeof setTimeout> | undefined;
   let lastArgs: unknown[] = [];
   const wrapped: CancellableWrapper = (...args: unknown[]) => {
     lastArgs = args;
-    if (timer !== undefined) return;
+    if (wrapped._timer !== undefined) return;
     const elapsed = Date.now() - lastTime;
     const delay = lastTime === 0 ? ms : Math.max(0, ms - elapsed);
-    timer = setTimeout(() => {
-      timer = undefined;
+    wrapped._timer = setTimeout(() => {
+      wrapped._timer = undefined;
       lastTime = Date.now();
       if (!wrapped._cancelled) fn(...lastArgs);
     }, delay);
@@ -64,11 +63,10 @@ function wrapThrottleTrailing(fn: AnyHandler, ms: number): CancellableWrapper {
 }
 
 function wrapDebounce(fn: AnyHandler, ms: number): CancellableWrapper {
-  let timer: ReturnType<typeof setTimeout> | undefined;
   const wrapped: CancellableWrapper = (...args: unknown[]) => {
-    if (timer !== undefined) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = undefined;
+    if (wrapped._timer !== undefined) clearTimeout(wrapped._timer);
+    wrapped._timer = setTimeout(() => {
+      wrapped._timer = undefined;
       if (!wrapped._cancelled) fn(...args);
     }, ms);
   };
@@ -1184,6 +1182,10 @@ export class EventHub<T = Record<string, unknown>> {
   #cancelHandler(record: HandlerRecord): void {
     const w = record.raw as CancellableWrapper;
     if (w._cancelled !== undefined) w._cancelled = true;
+    if (w._timer !== undefined) {
+      clearTimeout(w._timer);
+      w._timer = undefined;
+    }
   }
 
   #checkDestroyed(): void {

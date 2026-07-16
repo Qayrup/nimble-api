@@ -1,0 +1,9 @@
+packages:
+  - 'api-service'
+  - 'api-extend'
+  - 'eventhub'
+  - 'node-adapter'
+  - 'sse-service'
+  - 'oidc'
+allowBuilds:
+  esbuild: true

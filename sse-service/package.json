@@ -1,6 +1,6 @@
 {
   "name": "@nimble-api/sse-service",
-  "version": "1.0.1",
+  "version": "1.0.5",
   "publishConfig": {
     "access": "public"
   },

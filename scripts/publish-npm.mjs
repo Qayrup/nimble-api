@@ -48,6 +48,16 @@ const NEW_VERSION = bumpVersion(OLD_VERSION, BUMP);
 
 console.log(`\n📦 统一升级 ${PACKAGES.length} 个包: ${OLD_VERSION} → ${NEW_VERSION} (${BUMP})\n`);
 
+// Phase 0: Build all packages BEFORE bumping versions (workspace * deps resolve locally)
+console.log('🔨 构建所有包...\n');
+let failed = false;
+try {
+  execSync('pnpm -r build', { cwd: ROOT, stdio: 'inherit' });
+} catch (err) {
+  console.error('❌ 构建失败');
+  process.exit(1);
+}
+
 // Phase 1: Bump all versions + patch workspace deps
 const patched = new Set();
 for (const name of PACKAGES) {
@@ -76,38 +86,18 @@ for (const name of PACKAGES) {
   console.log(`  📝 ${name}: ${OLD_VERSION} → ${NEW_VERSION}`);
 }
 
-// Phase 2: Build + Publish (from package dir, NOT -w)
+// Phase 2: Publish all workspaces in one command (single auth session)
 console.log('');
-let failed = false;
-for (const name of PACKAGES) {
-  const pkgPath = path.join(ROOT, name, 'package.json');
-  if (!fs.existsSync(pkgPath)) continue;
-
-  const pkgDir = path.join(ROOT, name);
-
-  // Build
-  console.log(`  🔨 ${name} building...`);
-  try {
-    execSync(`npm run build -w @nimble-api/${name}`, {
-      cwd: ROOT,
-      stdio: 'pipe',
-    });
-  } catch (err) {
-    console.error(`  ❌ ${name} build 失败: ${err?.stderr?.toString() ?? err?.message ?? err}`);
-    failed = true;
-    break;
-  }
-
-  // Publish from the package directory (avoids npm injecting workspace:^)
-  const publishCmd = `npm publish${OTP ? ` --otp=${OTP}` : ''}`;
-  try {
-    execSync(publishCmd, { cwd: pkgDir, stdio: 'inherit' });
-    console.log(`  ✅ ${name}@${NEW_VERSION} 发布成功\n`);
-  } catch {
-    console.error(`  ❌ ${name} 发布失败\n`);
-    failed = true;
-    break;
-  }
+const workspaceFlags = PACKAGES.map(n => `-w @nimble-api/${n}`).join(' ');
+try {
+  execSync(`npm publish ${workspaceFlags}${OTP ? ` --otp=${OTP}` : ''}`, {
+    cwd: ROOT,
+    stdio: 'inherit',
+  });
+  console.log(`\n  ✅ 全部 ${PACKAGES.length} 个包 @${NEW_VERSION} 发布成功\n`);
+} catch {
+  console.error(`\n  ❌ 发布失败\n`);
+  failed = true;
 }
 
 // Phase 3: Restore workspace * for local development

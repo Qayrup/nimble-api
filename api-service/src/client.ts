@@ -1,6 +1,7 @@
 import { MemoryCache } from './core/cache';
 import { buildUrl } from './utils/url-builder';
 import { generateCacheKey, stableNormalize } from './utils/cache-key';
+import { bodyToQueryString } from './utils/body-to-qs';
 import { createFetchAdapter } from './adapters/fetch';
 import { runBeforeRequest, runAfterResponse, runBeforeRetry, runBeforeError, runInitHooks } from './hooks';
 import { calcBackoff, shouldRetry, DEFAULT_RETRY } from './retry';
@@ -185,15 +186,25 @@ export class ApiClient {
 
     const normalized = this.#normalizeOptions(opts);
     const method = (opts.method ?? 'GET').toUpperCase();
-    const url = this.#buildFullUrl(rawUrl, opts);
-    const body = this.#extractBody(opts);
+    let url = this.#buildFullUrl(rawUrl, opts);
+    let body = this.#extractBody(opts);
+
+    const BODY_AS_QS_METHODS = new Set(['GET', 'HEAD', 'DELETE', 'OPTIONS']);
+    if (body != null && typeof body === 'object' && !Array.isArray(body) &&
+        !(body instanceof FormData) &&
+        BODY_AS_QS_METHODS.has(method) &&
+        normalized.deleteBodyMode === 'query') {
+      const qs = bodyToQueryString(body);
+      if (qs) url = url + (url.includes('?') ? '&' : '?') + qs;
+      body = undefined;
+    }
 
     // Build initial request state
     const headers: Record<string, string> = {
       ...this.#options.headers,
       ...opts.headers,
     };
-    if (body != null && !(body instanceof FormData) && method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS' && (method !== 'DELETE' || opts.deleteBodyMode === 'json')) {
+    if (body != null && !(body instanceof FormData)) {
       headers['Content-Type'] = 'application/json';
     }
 
