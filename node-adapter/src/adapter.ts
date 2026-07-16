@@ -467,5 +467,10 @@ export function createNodeAdapter(options: NodeAdapterOptions = {}): RequestAdap
 
       return performRequest(config, 0);
     },
+
+    dispose(): void {
+      httpAgent?.destroy();
+      httpsAgent?.destroy();
+    },
   };
 }
