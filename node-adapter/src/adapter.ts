@@ -4,7 +4,7 @@ import { resolveProxy } from './proxy';
 import { isRedirect, buildRedirectUrl, methodAfterRedirect, shouldKeepBody } from './redirect';
 import { calcBodySize } from './utils/body-size';
 import type { NodeAdapterOptions, CookieJar } from './types';
-import { ApiError, type RequestAdapter, type AdapterRequestConfig, type AdapterResponse } from '@nimble-api/api-service';
+import { ApiError, type AdapterRequestConfig, type AdapterResponse } from '@nimble-api/api-service';
 
 interface ResolvedOptions {
   keepAlive: boolean;
@@ -48,7 +48,7 @@ const DEFAULT_OPTIONS: ResolvedOptions = {
   cookieJar: undefined,
 };
 
-export function createNodeAdapter(options: NodeAdapterOptions = {}): RequestAdapter {
+export function createNodeAdapter(options: NodeAdapterOptions = {}) {
   const opts = { ...DEFAULT_OPTIONS, ...options };
 
   const httpAgent = opts.httpAgent ?? (opts.keepAlive
