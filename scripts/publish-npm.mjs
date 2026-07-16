@@ -100,7 +100,7 @@ for (const name of PACKAGES) {
   if (patched) writeJson(pkgPath, pkg);
 
   // 4. Publish to npm public registry
-  const publishCmd = `npm publish -w @nimble-api/${name}${OTP ? ` --otp=${OTP}` : ''}`;
+  const publishCmd = `npm publish -w @nimble-api/${name} --access public${OTP ? ` --otp=${OTP}` : ''}`;
   try {
     execSync(publishCmd, {
       cwd: path.join(__dirname, '..'),
