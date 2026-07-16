@@ -67,6 +67,19 @@ class SSEConnectionImpl implements SSEConnection {
     this.#readyState = ReadyState.CLOSED;
     this.#abortController?.abort();
     this.#notifyClose();
+    this.#handlers.clear();
+    this.#messageHandlers.clear();
+    this.#openHandlers.clear();
+    this.#errorHandlers.clear();
+    this.#closeHandlers.clear();
+  }
+
+  dispose(): void {
+    this.close();
+  }
+
+  [Symbol.dispose](): void {
+    this.dispose();
   }
 
   async #connect(): Promise<void> {
@@ -269,11 +282,11 @@ class SSEConnectionImpl implements SSEConnection {
     const maxAttempts = (cfg && typeof cfg === 'object' ? cfg.maxAttempts : undefined) ?? Infinity;
     const interval = (cfg && typeof cfg === 'object' ? cfg.interval : undefined) ?? this.#serverRetry ?? 3000;
 
-    this.#reconnectAttempts++;
     if (this.#reconnectAttempts >= maxAttempts) {
       this.#notifyError(new Error('SSE max reconnect attempts exceeded'));
       return;
     }
+    this.#reconnectAttempts++;
 
     setTimeout(() => this.#connect(), interval);
   }

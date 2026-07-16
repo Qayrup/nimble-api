@@ -38,4 +38,6 @@ export interface SSEConnection {
   onError(handler: (error: Error) => void): () => void;
   onClose(handler: () => void): () => void;
   close(): void;
+  dispose(): void;
+  [Symbol.dispose](): void;
 }

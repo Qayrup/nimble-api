@@ -57,16 +57,21 @@ export function createFetchAdapter(timeout = 30000): RequestAdapter {
         } else if (responseType === 'text') {
           data = await res.text();
         } else {
-          try {
-            data = await res.json();
-          } catch {
-            throw new ApiError(`Invalid JSON response from ${url}`, {
-              code: 'ERR_BAD_RESPONSE',
-              status: res.status,
-              data: null,
-              request: { url, method: config.method },
-              response: { status: res.status, headers: {} },
-            });
+          const text = await res.text();
+          if (!text) {
+            data = null;
+          } else {
+            try {
+              data = JSON.parse(text);
+            } catch {
+              throw new ApiError(`Invalid JSON response from ${url}`, {
+                code: 'ERR_BAD_RESPONSE',
+                status: res.status,
+                data: null,
+                request: { url, method: config.method },
+                response: { status: res.status, headers: {} },
+              });
+            }
           }
         }
 

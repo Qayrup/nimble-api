@@ -82,7 +82,7 @@ export function createUniAppAdapter(): RequestAdapter {
                 resolve({
                   status: (res.statusCode as number) ?? 200,
                   data: typeof res.data === 'string'
-                    ? (() => { try { return JSON.parse(res.data); } catch { throw new ApiError(`Invalid JSON response from upload (status ${res.statusCode})`, { code: 'ERR_BAD_RESPONSE', status: (res.statusCode as number) ?? 0, data: null, request: { url: config.url, method: 'UPLOAD' } }); } })()
+                    ? (() => { const text = res.data as string; if (!text) return null; try { return JSON.parse(text); } catch { throw new ApiError(`Invalid JSON response from upload (status ${res.statusCode})`, { code: 'ERR_BAD_RESPONSE', status: (res.statusCode as number) ?? 0, data: null, request: { url: config.url, method: 'UPLOAD' } }); } })()
                     : res.data,
                   headers: {},
                 });

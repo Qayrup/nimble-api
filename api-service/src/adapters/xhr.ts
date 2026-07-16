@@ -86,17 +86,22 @@ export function createXhrAdapter(timeout = 30000): RequestAdapter {
             } else if (rt === 'text') {
               data = xhr.responseText;
             } else {
-              try {
-                data = JSON.parse(xhr.responseText);
-              } catch {
-                reject(new ApiError(`Invalid JSON response from ${config.method} ${config.url}`, {
-                  code: 'ERR_BAD_RESPONSE',
-                  status: xhr.status,
-                  data: null,
-                  request: { url: config.url, method: config.method },
-                  response: { status: xhr.status, headers: {} },
-                }));
-                return;
+              const text = xhr.responseText;
+              if (!text) {
+                data = null;
+              } else {
+                try {
+                  data = JSON.parse(text);
+                } catch {
+                  reject(new ApiError(`Invalid JSON response from ${config.method} ${config.url}`, {
+                    code: 'ERR_BAD_RESPONSE',
+                    status: xhr.status,
+                    data: null,
+                    request: { url: config.url, method: config.method },
+                    response: { status: xhr.status, headers: {} },
+                  }));
+                  return;
+                }
               }
             }
 

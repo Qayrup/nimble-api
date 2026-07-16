@@ -563,12 +563,12 @@ export class ApiClient {
 
   #extractEntities(entities: Array<{ name: string; idKey?: string; envelopeKey?: string }>, data: unknown): void {
     const envelope = data as Record<string, unknown>;
-    const envKey = entities[0]?.envelopeKey ?? 'data';
-    const payload = envelope?.[envKey] != null && typeof envelope[envKey] === 'object'
-      ? envelope[envKey]
-      : data;
-    const items = Array.isArray(payload) ? payload : [payload];
     for (const entity of entities) {
+      const envKey = entity.envelopeKey ?? 'data';
+      const payload = envelope?.[envKey] != null && typeof envelope[envKey] === 'object'
+        ? envelope[envKey]
+        : data;
+      const items = Array.isArray(payload) ? payload : [payload];
       const idKey = entity.idKey ?? 'id';
       for (const item of items) {
         const id = (item as Record<string, unknown>)[idKey];
