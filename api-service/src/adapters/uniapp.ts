@@ -112,7 +112,19 @@ export function createUniAppAdapter(): RequestAdapter {
               resolve({
                 status: (res.statusCode as number) ?? 200,
                 data: typeof res.data === 'string' && responseType !== 'text'
-                  ? (() => { try { return JSON.parse(res.data); } catch { return res.data; } })()
+                  ? (() => {
+                      const text = res.data as string;
+                      if (!text) return null;
+                      try { return JSON.parse(text); } catch {
+                        throw new ApiError(`Invalid JSON response from ${config.url}`, {
+                          code: 'ERR_BAD_RESPONSE',
+                          status: (res.statusCode as number) ?? 200,
+                          data: null,
+                          request: { url: config.url, method: config.method },
+                          response: { status: (res.statusCode as number) ?? 200, headers: {} },
+                        });
+                      }
+                    })()
                   : res.data,
                 headers: (res.header as Record<string, string>) || {},
               });
