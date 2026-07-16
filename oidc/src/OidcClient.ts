@@ -200,6 +200,10 @@ export class OidcClient {
     this.#tokenChangeListeners.clear();
   }
 
+  [Symbol.dispose](): void {
+    this.dispose();
+  }
+
   // === Queries ===
 
   getAccessToken(): string | null {
