@@ -6,8 +6,8 @@
   },
   "description": "Node.js http/https adapter for @nimble-api/api-service — keepAlive, proxy, redirects, stream, decompress, cookie jar",
   "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.mjs",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "homepage": "https://github.com/qayrup/nimble-api",
   "repository": {
@@ -17,8 +17,8 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
     }
   },
   "sideEffects": false,

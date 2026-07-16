@@ -4,6 +4,7 @@ import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(__dirname, '..');
 
 // === Config ===
 const REGISTRY = process.env.NPM_REGISTRY ?? 'http://localhost:4873';
@@ -19,39 +20,12 @@ const PACKAGES = [
   'oidc',
 ];
 
-// === Helpers ===
 function readJson(p) {
   return JSON.parse(fs.readFileSync(p, 'utf8'));
 }
 function writeJson(p, data) {
   fs.writeFileSync(p, JSON.stringify(data, null, 2) + '\n', 'utf8');
 }
-function patchWorkspaceDeps(pkg, version) {
-  let changed = false;
-  for (const field of ['dependencies', 'peerDependencies']) {
-    const deps = pkg[field];
-    if (!deps) continue;
-    for (const [name, val] of Object.entries(deps)) {
-      if (val === '*') {
-        deps[name] = `^${version}`;
-        changed = true;
-      }
-    }
-  }
-  return changed;
-}
-
-function restoreDeps(pkg, version, patched) {
-  if (!patched) return;
-  for (const field of ['dependencies', 'peerDependencies']) {
-    const deps = pkg[field];
-    if (!deps) continue;
-    for (const [depName, val] of Object.entries(deps)) {
-      if (val === `^${version}`) deps[depName] = '*';
-    }
-  }
-}
-
 function bumpVersion(version, level) {
   const [major, minor, patch] = version.split('.').map(Number);
   if (level === 'major') return `${major + 1}.0.0`;
@@ -59,58 +33,95 @@ function bumpVersion(version, level) {
   return `${major}.${minor}.${patch + 1}`;
 }
 
-// === Main ===
-console.log(`\n📦 发布 ${PACKAGES.length} 个包到 ${REGISTRY}（${BUMP} bump）\n`);
+// ═══ 以 eventhub 为准一版本源，所有包强制统一版本 ═══
+const eventhubPkg = readJson(path.join(ROOT, 'eventhub', 'package.json'));
+const OLD_VERSION = eventhubPkg.version;
+const NEW_VERSION = bumpVersion(OLD_VERSION, BUMP);
 
+console.log(`\n📦 统一升级 ${PACKAGES.length} 个包 → ${REGISTRY}: ${OLD_VERSION} → ${NEW_VERSION} (${BUMP})\n`);
+
+// Phase 1: Bump all versions + patch workspace deps
+const patched = new Set();
 for (const name of PACKAGES) {
-  const pkgPath = path.join(__dirname, '..', name, 'package.json');
+  const pkgPath = path.join(ROOT, name, 'package.json');
   if (!fs.existsSync(pkgPath)) {
     console.log(`  ⚠ ${name} — 目录不存在，跳过`);
     continue;
   }
 
-  // 1. Bump version
   const pkg = readJson(pkgPath);
-  const oldVer = pkg.version;
-  const newVer = bumpVersion(oldVer, BUMP);
-  pkg.version = newVer;
+  pkg.version = NEW_VERSION;
+
+  for (const field of ['dependencies', 'peerDependencies']) {
+    const deps = pkg[field];
+    if (!deps) continue;
+    for (const [depName, val] of Object.entries(deps)) {
+      if (val === '*') {
+        deps[depName] = `^${NEW_VERSION}`;
+        patched.add(`${name}:${depName}`);
+      }
+    }
+  }
+
   writeJson(pkgPath, pkg);
+  console.log(`  📝 ${name}: ${OLD_VERSION} → ${NEW_VERSION}`);
+}
 
-  console.log(`  ${name}: ${oldVer} → ${newVer}`);
+// Phase 2: Build + Publish (from package dir, NOT -w)
+console.log('');
+let failed = false;
+for (const name of PACKAGES) {
+  const pkgPath = path.join(ROOT, name, 'package.json');
+  if (!fs.existsSync(pkgPath)) continue;
 
-  // 2. Build
+  const pkgDir = path.join(ROOT, name);
+
+  console.log(`  🔨 ${name} building...`);
   try {
     execSync(`npm run build -w @nimble-api/${name}`, {
-      cwd: path.join(__dirname, '..'),
+      cwd: ROOT,
       stdio: 'pipe',
     });
   } catch (err) {
-    console.error(`  ❌ ${name} build 失败`, err?.message ?? err);
-    process.exit(1);
+    console.error(`  ❌ ${name} build 失败: ${err?.stderr?.toString() ?? err?.message ?? err}`);
+    failed = true;
+    break;
   }
 
-  // 3. Replace workspace * with ^version for publish
-  const patched = patchWorkspaceDeps(pkg, newVer);
-  if (patched) writeJson(pkgPath, pkg);
-
-  // 4. Publish
   try {
-    execSync(`npm publish -w @nimble-api/${name} --registry ${REGISTRY}`, {
-      cwd: path.join(__dirname, '..'),
-      stdio: 'inherit',
-    });
-    console.log(`  ✅ ${name}@${newVer} 发布成功\n`);
+    execSync(`npm publish --registry ${REGISTRY}`, { cwd: pkgDir, stdio: 'inherit' });
+    console.log(`  ✅ ${name}@${NEW_VERSION} 发布成功\n`);
   } catch {
-    console.error(`  ❌ ${name} 发布失败，恢复...`);
-    restoreDeps(pkg, newVer, patched);
-    pkg.version = oldVer;
-    writeJson(pkgPath, pkg);
-    process.exit(1);
+    console.error(`  ❌ ${name} 发布失败\n`);
+    failed = true;
+    break;
   }
-
-  // Restore * for local development
-  restoreDeps(pkg, newVer, patched);
-  if (patched) writeJson(pkgPath, pkg);
 }
 
-console.log('🎉 全部发布完成');
+// Phase 3: Restore workspace * for local development
+console.log('🔄 恢复本地 workspace 依赖...');
+for (const name of PACKAGES) {
+  const pkgPath = path.join(ROOT, name, 'package.json');
+  if (!fs.existsSync(pkgPath)) continue;
+
+  const pkg = readJson(pkgPath);
+  if (failed) {
+    pkg.version = OLD_VERSION;
+  }
+  for (const field of ['dependencies', 'peerDependencies']) {
+    const deps = pkg[field];
+    if (!deps) continue;
+    for (const [depName, val] of Object.entries(deps)) {
+      if (patched.has(`${name}:${depName}`) && val === `^${NEW_VERSION}`) {
+        deps[depName] = '*';
+      }
+    }
+  }
+  writeJson(pkgPath, pkg);
+}
+
+if (failed) {
+  console.error(`\n❌ 发布中断，版本已回滚到 ${OLD_VERSION}`);
+  process.exit(1);
+}
+console.log(`🎉 全部 ${PACKAGES.length} 个包 @${NEW_VERSION} 发布完成`);

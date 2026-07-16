@@ -47,6 +47,13 @@ export class OidcClient {
       this.#scheduleAutoRefresh();
       this.#emitTokenChanged(token, source);
     });
+
+    this.#sync.onProbe(() => {
+      const token = this.#store.getToken();
+      if (token) {
+        this.#sync.broadcast(token, 'login');
+      }
+    });
   }
 
   // === Lifecycle ===
@@ -204,6 +211,10 @@ export class OidcClient {
   isAuthenticated(): boolean {
     const token = this.#store.getToken();
     return token !== null && !this.#store.isExpired();
+  }
+
+  async waitForInitialSync(): Promise<void> {
+    await this.#sync.waitForSync(300);
   }
 
   // === Events ===
