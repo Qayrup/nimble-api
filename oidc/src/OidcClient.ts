@@ -249,7 +249,16 @@ export class OidcClient {
       );
     }
 
-    const data = (await res.json()) as Record<string, unknown>;
+    const text = await res.text();
+    if (!text) {
+      throw new OidcTokenError(`Token endpoint returned empty body (HTTP ${res.status})`);
+    }
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      throw new OidcTokenError(`Invalid JSON response from token endpoint (HTTP ${res.status})`);
+    }
     return {
       accessToken: data.access_token as string,
       refreshToken: data.refresh_token as string | undefined,
@@ -272,7 +281,17 @@ export class OidcClient {
       );
     }
 
-    this.#metadata = (await res.json()) as OidcMetadata;
+    const text = await res.text();
+    if (!text) {
+      throw new OidcTokenError(`OIDC discovery document returned empty body (HTTP ${res.status})`);
+    }
+    let parsed: OidcMetadata;
+    try {
+      parsed = JSON.parse(text) as OidcMetadata;
+    } catch {
+      throw new OidcTokenError(`Invalid JSON in OIDC discovery document (HTTP ${res.status})`);
+    }
+    this.#metadata = parsed;
     return this.#metadata;
   }
 
