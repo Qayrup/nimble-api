@@ -103,4 +103,12 @@ export class SessionSync {
     this.#listeners.clear();
     this.#probeHandlers.clear();
   }
+
+  dispose(): void {
+    this.close();
+  }
+
+  [Symbol.dispose](): void {
+    this.dispose();
+  }
 }

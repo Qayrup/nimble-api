@@ -196,7 +196,7 @@ export class OidcClient {
 
   dispose(): void {
     this.#clearAutoRefresh();
-    this.#sync.close();
+    this.#sync.dispose();
     this.#tokenChangeListeners.clear();
   }
 
