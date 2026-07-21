@@ -56,6 +56,22 @@ describe('poll', () => {
     ).rejects.toThrow(PollFailedError);
   });
 
+  it('removes abort listener after settle', async () => {
+    const controller = new AbortController();
+    const removeSpy = vi.spyOn(controller.signal, 'removeEventListener');
+    const fn = vi.fn<() => Promise<TestData>>().mockResolvedValue({ status: 'done' });
+
+    const result = await poll(fn, {
+      interval: 5,
+      until: (data) => data.status === 'done',
+      signal: controller.signal,
+    });
+
+    expect(result.status).toBe('done');
+    expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function));
+    removeSpy.mockRestore();
+  });
+
   it('type narrows through until predicate', async () => {
     type Payment = { status: 'pending' | 'paid'; amount: number };
 

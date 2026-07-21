@@ -22,6 +22,12 @@ export function poll<T>(
     const cleanup = (): void => {
       aborted = true;
       if (timer !== undefined) clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+    };
+
+    const onAbort = (): void => {
+      cleanup();
+      reject(new PollCanceledError());
     };
 
     if (signal) {
@@ -29,18 +35,20 @@ export function poll<T>(
         reject(new PollCanceledError());
         return;
       }
-      signal.addEventListener('abort', () => {
-        cleanup();
-        reject(new PollCanceledError());
-      }, { once: true });
+      signal.addEventListener('abort', onAbort, { once: true });
     }
+
+    const settle = (fn: () => void): void => {
+      cleanup();
+      fn();
+    };
 
     const tick = async (): Promise<void> => {
       if (aborted) return;
 
       attempts++;
       if (attempts > maxAttempts) {
-        reject(new PollTimeoutError(attempts - 1, interval));
+        settle(() => reject(new PollTimeoutError(attempts - 1, interval)));
         return;
       }
 
@@ -49,19 +57,19 @@ export function poll<T>(
         data = await fn();
       } catch (err) {
         if (aborted) return;
-        reject(err);
+        settle(() => reject(err));
         return;
       }
 
       if (aborted) return;
 
       if (stopIf?.(data)) {
-        reject(new PollFailedError(data));
+        settle(() => reject(new PollFailedError(data)));
         return;
       }
 
       if (until(data)) {
-        resolve(data);
+        settle(() => resolve(data));
         return;
       }
 

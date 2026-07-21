@@ -77,6 +77,27 @@ describe('createConcurrencyLimit', () => {
     expect(order).toEqual([1, 2]);
   });
 
+  it('synchronously throwing tasks release the slot', async () => {
+    const limiter = createConcurrencyLimit(1);
+    const order: number[] = [];
+
+    const p1 = limiter(() => {
+      order.push(1);
+      throw new Error('sync fail');
+    });
+    const p2 = limiter(async () => {
+      order.push(2);
+      return 'ok';
+    });
+
+    await expect(p1).rejects.toThrow('sync fail');
+    expect(await p2).toBe('ok');
+    expect(order).toEqual([1, 2]);
+    await Promise.resolve();
+    expect(limiter.running).toBe(0);
+    expect(limiter.pending).toBe(0);
+  });
+
   it('running and pending reflect current state', async () => {
     const limiter = createConcurrencyLimit(1);
     expect(limiter.running).toBe(0);

@@ -22,7 +22,8 @@ export function createConcurrencyLimit(limit: number): ConcurrencyLimiter {
     if (queue.length === 0 || running >= limit) return;
     const task = queue.shift()!;
     running++;
-    task.fn()
+    Promise.resolve()
+      .then(task.fn)
       .then(task.resolve, task.reject)
       .finally(() => {
         running--;
