@@ -953,6 +953,11 @@ export class EventHub<T = Record<string, unknown>> {
 
   // === 生命周期 ===
 
+  /**
+   * 清空全部订阅（实例可继续复用）。挂起的 events() 迭代器以 {done:true} 结束；
+   * once()/waitFor() 的 Promise 不会 settle（clear 不代表实例销毁），
+   * 需要可取消时请通过 opts.signal 控制生命周期。
+   */
   clear(): void {
     for (const arr of this.#handlers.values()) {
       for (const record of arr) this.#cancelHandler(record);
@@ -965,6 +970,8 @@ export class EventHub<T = Record<string, unknown>> {
     this.#warned.clear();
     this.#regexCache.clear();
     this.#deferredMeta.length = 0;
+    for (const complete of this.#activeIterators) complete();
+    this.#activeIterators.clear();
   }
 
   dispose(): void {

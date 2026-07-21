@@ -1862,6 +1862,42 @@ describe('dispose() settles pending consumers', () => {
   });
 });
 
+describe('clear() settles iterators but not once/waitFor', () => {
+  it('for await loop terminates after clear, hub stays reusable', async () => {
+    const hub = createTestHub();
+    const received: string[] = [];
+    const loop = (async () => {
+      for await (const p of hub.events('user:login')) {
+        received.push(p.userId);
+      }
+    })();
+    hub.emit('user:login', { userId: '1', timestamp: 1 });
+    await new Promise(r => setTimeout(r, 0));
+    hub.clear();
+    await loop;
+    expect(received).toEqual(['1']);
+
+    const handler = vi.fn();
+    hub.on('user:login', handler);
+    hub.emit('user:login', { userId: '2', timestamp: 2 });
+    expect(handler).toHaveBeenCalledWith({ userId: '2', timestamp: 2 });
+  });
+
+  it('once() stays pending after clear', async () => {
+    const hub = createTestHub();
+    let settled = false;
+    const promise = hub.once('user:login').then(
+      () => { settled = true; },
+      () => { settled = true; },
+    );
+    hub.clear();
+    await Promise.race([promise, new Promise(r => setTimeout(r, 20))]);
+    expect(settled).toBe(false);
+    hub.dispose();
+    await promise;
+  });
+});
+
 // ============================================================
 // off() removes pattern handlers
 // ============================================================
