@@ -8,6 +8,8 @@ export interface SSEEvent {
 export interface SSEReconnect {
   maxAttempts?: number;
   interval?: number;
+  /** Upper bound for exponential backoff delay (ms). Default 30000. */
+  maxInterval?: number;
 }
 
 export interface SSEOptions {

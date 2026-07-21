@@ -20,6 +20,8 @@ class SSEConnectionImpl implements SSEConnection {
   #maxBufferSize = 1024 * 1024; // 1MB
   #serverRetry: number | null = null;
   #signalOnAbort: (() => void) | null = null;
+  #reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  #stabilityTimer: ReturnType<typeof setTimeout> | null = null;
 
   get readyState(): ReadyState { return this.#readyState; }
   get url(): string { return this.#url; }
@@ -63,6 +65,14 @@ class SSEConnectionImpl implements SSEConnection {
     if (this.#signalOnAbort) {
       this.#options.signal?.removeEventListener('abort', this.#signalOnAbort);
       this.#signalOnAbort = null;
+    }
+    if (this.#reconnectTimer) {
+      clearTimeout(this.#reconnectTimer);
+      this.#reconnectTimer = null;
+    }
+    if (this.#stabilityTimer) {
+      clearTimeout(this.#stabilityTimer);
+      this.#stabilityTimer = null;
     }
     this.#readyState = ReadyState.CLOSED;
     this.#abortController?.abort();
@@ -156,9 +166,9 @@ class SSEConnectionImpl implements SSEConnection {
         throw new Error(`SSE expected text/event-stream, got ${contentType}`);
       }
 
-      this.#reconnectAttempts = 0;
       this.#readyState = ReadyState.OPEN;
       this.#notifyOpen();
+      this.#armStabilityTimer();
       const reader = res.body?.getReader();
       if (!reader) throw new Error('ReadableStream not supported');
 
@@ -197,15 +207,16 @@ class SSEConnectionImpl implements SSEConnection {
     let start = 0;
     let idx: number;
     while ((idx = this.#buffer.indexOf('\n', start)) !== -1) {
-      const line = this.#buffer.slice(start, idx).trimEnd();
+      let line = this.#buffer.slice(start, idx);
+      if (line.endsWith('\r')) line = line.slice(0, -1);
       start = idx + 1;
 
       if (line === '') {
+        if (id !== undefined) this.#lastEventId = id;
         if (dataLines.length > 0) {
           const raw = dataLines.join('\n');
           const data = this.#parseData(raw);
           const evt: SSEEvent = { event: eventType, data, id, explicitEvent };
-          if (id) this.#lastEventId = id;
           this.#dispatch(evt);
         }
         eventType = 'message';
@@ -253,6 +264,7 @@ class SSEConnectionImpl implements SSEConnection {
   }
 
   #dispatch(evt: SSEEvent): void {
+    this.#reconnectAttempts = 0;
     const handlers = this.#handlers.get(evt.event);
     if (handlers) {
       for (const h of handlers) {
@@ -274,21 +286,44 @@ class SSEConnectionImpl implements SSEConnection {
     }
   }
 
+  #baseInterval(): number {
+    const cfg = this.#options.reconnect;
+    return (cfg && typeof cfg === 'object' ? cfg.interval : undefined) ?? this.#serverRetry ?? 3000;
+  }
+
+  #armStabilityTimer(): void {
+    if (this.#options.reconnect === false) return;
+    if (this.#stabilityTimer) clearTimeout(this.#stabilityTimer);
+    this.#stabilityTimer = setTimeout(() => {
+      this.#stabilityTimer = null;
+      if (this.#readyState === ReadyState.OPEN) this.#reconnectAttempts = 0;
+    }, this.#baseInterval());
+  }
+
   #scheduleReconnect(): void {
     this.#readyState = ReadyState.CONNECTING;
+    if (this.#stabilityTimer) {
+      clearTimeout(this.#stabilityTimer);
+      this.#stabilityTimer = null;
+    }
     const cfg = this.#options.reconnect;
     if (cfg === false) return;
 
     const maxAttempts = (cfg && typeof cfg === 'object' ? cfg.maxAttempts : undefined) ?? Infinity;
-    const interval = (cfg && typeof cfg === 'object' ? cfg.interval : undefined) ?? this.#serverRetry ?? 3000;
+    const maxInterval = (cfg && typeof cfg === 'object' ? cfg.maxInterval : undefined) ?? 30000;
 
     if (this.#reconnectAttempts >= maxAttempts) {
       this.#notifyError(new Error('SSE max reconnect attempts exceeded'));
+      this.close();
       return;
     }
     this.#reconnectAttempts++;
 
-    setTimeout(() => this.#connect(), interval);
+    const delay = Math.min(this.#baseInterval() * 2 ** (this.#reconnectAttempts - 1), maxInterval);
+    this.#reconnectTimer = setTimeout(() => {
+      this.#reconnectTimer = null;
+      void this.#connect();
+    }, delay);
   }
 
   #notifyError(err: Error): void {
