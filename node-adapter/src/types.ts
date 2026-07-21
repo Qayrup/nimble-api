@@ -18,6 +18,10 @@ export interface NodeAdapterOptions {
   // --- 解压 ---
   decompress?: boolean;
 
+  // --- 响应 ---
+  /** Max buffered response body size in bytes. Default `Infinity`. */
+  maxContentLength?: number;
+
   // --- 自定义 Agent ---
   httpAgent?: import('node:http').Agent;
   httpsAgent?: import('node:https').Agent;

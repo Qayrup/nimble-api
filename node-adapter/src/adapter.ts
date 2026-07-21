@@ -25,6 +25,7 @@ interface ResolvedOptions {
   socketPath: string | undefined;
   lookup: NodeAdapterOptions['lookup'];
   cookieJar: CookieJar | undefined;
+  maxContentLength: number;
 }
 
 const DEFAULT_OPTIONS: ResolvedOptions = {
@@ -46,6 +47,7 @@ const DEFAULT_OPTIONS: ResolvedOptions = {
   socketPath: undefined,
   lookup: undefined,
   cookieJar: undefined,
+  maxContentLength: Infinity,
 };
 
 export function createNodeAdapter(options: NodeAdapterOptions = {}) {
@@ -152,35 +154,10 @@ export function createNodeAdapter(options: NodeAdapterOptions = {}) {
 
     return new Promise<AdapterResponse>((resolve, reject) => {
       const transport = isHttps ? https : http;
-      let req: http.ClientRequest;
+      let req: http.ClientRequest | undefined;
       let connectTimer: ReturnType<typeof setTimeout> | undefined;
-
-      // Connection timeout
-      const effectiveConnectTimeout = config.connectTimeout ?? opts.connectTimeout;
-      if (effectiveConnectTimeout && effectiveConnectTimeout > 0) {
-        connectTimer = setTimeout(() => {
-          req.destroy(new Error(`Connection timed out after ${effectiveConnectTimeout}ms`));
-        }, effectiveConnectTimeout);
-      }
-
-      // Request-level timeout (total deadline)
       let requestTimer: ReturnType<typeof setTimeout> | undefined;
-      if (config.timeout && config.timeout > 0) {
-        requestTimer = setTimeout(() => {
-          req.destroy(new Error(`Request timed out after ${config.timeout}ms`));
-        }, config.timeout);
-      }
-
-      // AbortSignal
       let onAbort: (() => void) | undefined;
-      if (config.signal) {
-        onAbort = () => req.destroy(new DOMException('The operation was aborted', 'AbortError'));
-        if (config.signal.aborted) {
-          reject(new DOMException('The operation was aborted', 'AbortError'));
-          return;
-        }
-        config.signal.addEventListener('abort', onAbort, { once: true });
-      }
 
       function cleanup() {
         if (connectTimer) clearTimeout(connectTimer);
@@ -195,6 +172,31 @@ export function createNodeAdapter(options: NodeAdapterOptions = {}) {
         reject(err);
       }
 
+      // AbortSignal
+      if (config.signal) {
+        if (config.signal.aborted) {
+          reject(new DOMException('The operation was aborted', 'AbortError'));
+          return;
+        }
+        onAbort = () => req?.destroy(new DOMException('The operation was aborted', 'AbortError'));
+        config.signal.addEventListener('abort', onAbort, { once: true });
+      }
+
+      // Connection timeout
+      const effectiveConnectTimeout = config.connectTimeout ?? opts.connectTimeout;
+      if (effectiveConnectTimeout && effectiveConnectTimeout > 0) {
+        connectTimer = setTimeout(() => {
+          req?.destroy(new Error(`Connection timed out after ${effectiveConnectTimeout}ms`));
+        }, effectiveConnectTimeout);
+      }
+
+      // Request-level timeout (total deadline)
+      if (config.timeout && config.timeout > 0) {
+        requestTimer = setTimeout(() => {
+          req?.destroy(new Error(`Request timed out after ${config.timeout}ms`));
+        }, config.timeout);
+      }
+
       // For HTTPS through proxy, use CONNECT tunnel
       if (isConnectProxy && proxy) {
         const connectReq = http.request({
@@ -206,16 +208,16 @@ export function createNodeAdapter(options: NodeAdapterOptions = {}) {
             'Proxy-Authorization': `Basic ${Buffer.from(`${proxy.auth.username}:${proxy.auth.password}`).toString('base64')}`,
           } : undefined,
         });
+        req = connectReq;
 
-        if (connectTimer) {
-          // Re-use connect timer
-          connectTimer.refresh();
-        }
-        if (requestTimer) {
-          requestTimer.refresh();
-        }
+        connectReq.on('connect', (res, socket) => {
+          const status = res.statusCode ?? 0;
+          if (status < 200 || status >= 300) {
+            socket.destroy();
+            handleError(new Error(`Proxy CONNECT to ${parsedUrl.hostname} failed with status ${status}`));
+            return;
+          }
 
-        connectReq.on('connect', (_res, socket) => {
           // Clear connect timer as we're now connected
           if (connectTimer) clearTimeout(connectTimer);
 
@@ -238,6 +240,7 @@ export function createNodeAdapter(options: NodeAdapterOptions = {}) {
           const tlsReq = https.request(tlsOptions, (res) =>
             handleResponse(res as http.IncomingMessage, config, redirectCount, resolve, reject, cleanup, isStreamResponse),
           );
+          req = tlsReq;
           tlsReq.on('error', handleError);
 
           if (config.timeout && config.timeout > 0) {
@@ -246,6 +249,11 @@ export function createNodeAdapter(options: NodeAdapterOptions = {}) {
 
           writeBody(tlsReq, config);
           tlsReq.end();
+        });
+
+        connectReq.on('response', (res) => {
+          res.resume();
+          handleError(new Error(`Proxy CONNECT to ${parsedUrl.hostname} failed with status ${res.statusCode ?? 0}`));
         });
 
         connectReq.on('error', handleError);
@@ -262,9 +270,13 @@ export function createNodeAdapter(options: NodeAdapterOptions = {}) {
 
       if (connectTimer) {
         req.on('socket', (socket) => {
-          socket.once('connect', () => {
+          if (!socket.connecting) {
             if (connectTimer) clearTimeout(connectTimer);
-          });
+          } else {
+            socket.once('connect', () => {
+              if (connectTimer) clearTimeout(connectTimer);
+            });
+          }
         });
       }
 
@@ -325,8 +337,12 @@ export function createNodeAdapter(options: NodeAdapterOptions = {}) {
 
       // Don't send body for GET redirects
       if (newMethod === 'GET') {
-        delete nextConfig.headers['Content-Type'];
-        delete nextConfig.headers['content-type'];
+        nextConfig.headers = Object.fromEntries(
+          Object.entries(nextConfig.headers).filter(([key]) => {
+            const lower = key.toLowerCase();
+            return lower !== 'content-type' && lower !== 'content-length' && lower !== 'content-encoding';
+          }),
+        );
         nextConfig.body = undefined;
       }
 
@@ -373,8 +389,14 @@ export function createNodeAdapter(options: NodeAdapterOptions = {}) {
     const total = contentLength ? parseInt(contentLength, 10) : 0;
 
     res.on('data', (chunk: Buffer) => {
-      chunks.push(chunk);
       totalBytes += chunk.byteLength;
+
+      if (totalBytes > opts.maxContentLength) {
+        res.destroy(new Error(`Response body too large: exceeded maxContentLength (${opts.maxContentLength} bytes)`));
+        return;
+      }
+
+      chunks.push(chunk);
 
       if (config.onDownloadProgress) {
         config.onDownloadProgress({ loaded: totalBytes, total });

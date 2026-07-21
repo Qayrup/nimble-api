@@ -15,5 +15,7 @@ export function calcBodySize(body: unknown): number {
     });
     return size;
   }
-  return 0;
+  if (body == null) return 0;
+  const json = JSON.stringify(body);
+  return json === undefined ? 0 : Buffer.byteLength(json, 'utf8');
 }

@@ -48,6 +48,12 @@ describe('methodAfterRedirect', () => {
     expect(methodAfterRedirect('POST', 302)).toBe('GET');
   });
 
+  it('301/302 preserve non-POST methods', () => {
+    expect(methodAfterRedirect('PUT', 301)).toBe('PUT');
+    expect(methodAfterRedirect('DELETE', 302)).toBe('DELETE');
+    expect(methodAfterRedirect('GET', 301)).toBe('GET');
+  });
+
   it('307/308 preserve method', () => {
     expect(methodAfterRedirect('POST', 307)).toBe('POST');
     expect(methodAfterRedirect('POST', 308)).toBe('POST');
@@ -57,9 +63,11 @@ describe('methodAfterRedirect', () => {
 
 describe('shouldKeepBody', () => {
   it('303 drops body', () => expect(shouldKeepBody('POST', 303)).toBe(false));
-  it('301/302 drop body', () => {
+  it('301/302 drop body only for POST', () => {
     expect(shouldKeepBody('POST', 301)).toBe(false);
     expect(shouldKeepBody('POST', 302)).toBe(false);
+    expect(shouldKeepBody('PUT', 301)).toBe(true);
+    expect(shouldKeepBody('DELETE', 302)).toBe(true);
   });
   it('307/308 keep body', () => {
     expect(shouldKeepBody('POST', 307)).toBe(true);
@@ -106,9 +114,14 @@ describe('calcBodySize', () => {
     expect(calcBodySize(new Uint8Array([1, 2, 3]))).toBe(3);
   });
 
-  it('returns 0 for unknown types', () => {
-    expect(calcBodySize({})).toBe(0);
+  it('calculates plain object size as serialized JSON bytes', () => {
+    expect(calcBodySize({})).toBe(2);
+    expect(calcBodySize({ a: 1 })).toBe(Buffer.byteLength('{"a":1}', 'utf8'));
+  });
+
+  it('returns 0 for null/undefined', () => {
     expect(calcBodySize(null)).toBe(0);
+    expect(calcBodySize(undefined)).toBe(0);
   });
 });
 
@@ -154,6 +167,26 @@ describe('SimpleCookieJar', () => {
     expect(jar.getCookieString('https://example.com')).toContain('token=val');
     expect(jar.getCookieString('https://sub.example.com')).toContain('token=val');
     expect(jar.getCookieString('https://other.com')).toBe('');
+  });
+
+  it('host-only cookie (no Domain attr) is sent only to the exact host', () => {
+    const jar = new SimpleCookieJar();
+    jar.setCookieFromHeaders('https://a.com', {
+      'set-cookie': 'sid=1; Path=/',
+    });
+    expect(jar.getCookieString('https://a.com')).toBe('sid=1');
+    expect(jar.getCookieString('https://b.com')).toBe('');
+    expect(jar.getCookieString('https://sub.a.com')).toBe('');
+  });
+
+  it('path matching follows RFC 6265 boundaries', () => {
+    const jar = new SimpleCookieJar();
+    jar.setCookieFromHeaders('https://example.com/foo', {
+      'set-cookie': 'a=1; Path=/foo',
+    });
+    expect(jar.getCookieString('https://example.com/foo')).toContain('a=1');
+    expect(jar.getCookieString('https://example.com/foo/bar')).toContain('a=1');
+    expect(jar.getCookieString('https://example.com/foobar')).toBe('');
   });
 
   it('respects secure flag', () => {
@@ -209,6 +242,14 @@ describe('createNodeAdapter', () => {
       } else if (url.pathname === '/redirect/permanent') {
         res.writeHead(301, { Location: '/json' });
         res.end();
+      } else if (url.pathname === '/redirect/permanent-post') {
+        res.writeHead(301, { Location: '/echo' });
+        res.end();
+      } else if (url.pathname === '/slow') {
+        setTimeout(() => {
+          res.writeHead(200, { 'Content-Type': 'text/plain' });
+          res.end('slow');
+        }, 200);
       } else if (url.pathname === '/redirect/temporary') {
         res.writeHead(302, { Location: '/json' });
         res.end();
@@ -361,5 +402,92 @@ describe('createNodeAdapter', () => {
     expect(cookieHeader).toBeTruthy();
     expect(cookieHeader).toContain('session=abc');
     expect(cookieHeader).toContain('theme=dark');
+  });
+
+  it('rejects pre-aborted signal without leaking timers', async () => {
+    const adapter = createNodeAdapter({ connectTimeout: 50 });
+    const controller = new AbortController();
+    controller.abort();
+
+    let uncaught: unknown = null;
+    const onUncaught = (err: unknown) => { uncaught = err; };
+    process.on('uncaughtException', onUncaught);
+    try {
+      await expect(
+        adapter.request({
+          url: `${baseUrl}/json`, method: 'GET', headers: {}, timeout: 50, signal: controller.signal,
+        }),
+      ).rejects.toThrow('aborted');
+      await new Promise(r => setTimeout(r, 150));
+      expect(uncaught).toBeNull();
+    } finally {
+      process.removeListener('uncaughtException', onUncaught);
+    }
+  });
+
+  it('does not kill keepAlive-reused socket with connectTimer', async () => {
+    const adapter = createNodeAdapter({ keepAlive: true, keepAliveMsecs: 5000, connectTimeout: 60 });
+    try {
+      const first = await adapter.request({ url: `${baseUrl}/json`, method: 'GET', headers: {} });
+      expect(first.status).toBe(200);
+      // Second request reuses the free keepAlive socket; response takes 200ms > connectTimeout 60ms
+      const second = await adapter.request({
+        url: `${baseUrl}/slow`, method: 'GET', headers: {}, responseType: 'text',
+      });
+      expect(second.status).toBe(200);
+      expect(second.data).toBe('slow');
+    } finally {
+      adapter.dispose();
+    }
+  });
+
+  it('rejects when proxy CONNECT returns non-2xx', async () => {
+    const proxyServer = http.createServer();
+    proxyServer.on('connect', (_req, socket) => {
+      socket.end('HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
+    });
+    await new Promise<void>(resolve => proxyServer.listen(0, () => resolve()));
+    const proxyPort = (proxyServer.address() as AddressInfo).port;
+
+    try {
+      const adapter = createNodeAdapter({ proxy: { host: '127.0.0.1', port: proxyPort } });
+      await expect(
+        adapter.request({ url: 'https://example.com/', method: 'GET', headers: {} }),
+      ).rejects.toThrow(/407/);
+    } finally {
+      proxyServer.close();
+    }
+  });
+
+  it('enforces maxBodyLength for JSON object bodies', async () => {
+    const adapter = createNodeAdapter();
+    await expect(
+      adapter.request({
+        url: `${baseUrl}/echo`, method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: { data: 'x'.repeat(100) }, maxBodyLength: 10,
+      }),
+    ).rejects.toThrow(/too large/);
+  });
+
+  it('enforces maxContentLength on buffered responses', async () => {
+    const adapter = createNodeAdapter({ maxContentLength: 5 });
+    await expect(
+      adapter.request({ url: `${baseUrl}/json`, method: 'GET', headers: {} }),
+    ).rejects.toThrow(/maxContentLength/);
+  });
+
+  it('strips Content-Length after 301 POST → GET redirect', async () => {
+    const adapter = createNodeAdapter({ maxRedirects: 5 });
+    const res = await adapter.request({
+      url: `${baseUrl}/redirect/permanent-post`, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': '7' },
+      body: '{"a":1}',
+    });
+    expect(res.status).toBe(200);
+    const data = res.data as { method: string; body: string | null; headers: Record<string, string> };
+    expect(data.method).toBe('GET');
+    expect(data.body).toBeNull();
+    expect(data.headers['content-length']).toBeUndefined();
+    expect(data.headers['content-type']).toBeUndefined();
   });
 });

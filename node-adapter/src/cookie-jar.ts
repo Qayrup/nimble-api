@@ -3,10 +3,20 @@ import type { CookieJar } from './types';
 interface CookieEntry {
   value: string;
   domain?: string;
+  hostOnly?: boolean;
   path?: string;
   expires?: Date;
   maxAge?: number;
   secure?: boolean;
+}
+
+function pathMatches(requestPath: string, cookiePath: string): boolean {
+  if (requestPath === cookiePath) return true;
+  if (requestPath.startsWith(cookiePath)) {
+    if (cookiePath.endsWith('/')) return true;
+    return requestPath.charAt(cookiePath.length) === '/';
+  }
+  return false;
 }
 
 export class SimpleCookieJar implements CookieJar {
@@ -22,10 +32,14 @@ export class SimpleCookieJar implements CookieJar {
         if (entry.expires && entry.expires.getTime() <= now) continue;
         if (entry.secure && protocol !== 'https:') continue;
         if (entry.domain) {
-          const d = entry.domain.replace(/^\./, '');
-          if (hostname !== d && !hostname.endsWith('.' + d)) continue;
+          if (entry.hostOnly) {
+            if (hostname !== entry.domain) continue;
+          } else {
+            const d = entry.domain.replace(/^\./, '');
+            if (hostname !== d && !hostname.endsWith('.' + d)) continue;
+          }
         }
-        if (entry.path && !pathname.startsWith(entry.path)) continue;
+        if (entry.path && !pathMatches(pathname, entry.path)) continue;
         result.push(entry.value);
       }
     }
@@ -44,7 +58,11 @@ export class SimpleCookieJar implements CookieJar {
       const entry = this.#parseSetCookie(raw);
       if (!entry) continue;
 
-      const domain = entry.domain ?? hostname;
+      if (!entry.domain) {
+        entry.domain = hostname;
+        entry.hostOnly = true;
+      }
+      const domain = entry.domain;
       const path = entry.path ?? (pathname.replace(/\/[^/]*$/, '') || '/');
       const key = `${domain}|${path}`;
 

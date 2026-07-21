@@ -43,17 +43,15 @@ function resolveRelative(path: string): string {
 export function methodAfterRedirect(originalMethod: string, status: number): string {
   // 303: always GET
   if (status === 303) return 'GET';
-  // 301/302: preserve only for HEAD (browsers change POST to GET)
-  if (status === 301 || status === 302) {
-    return originalMethod === 'HEAD' ? 'HEAD' : 'GET';
-  }
+  // 301/302: POST → GET (fetch spec), other methods preserved
+  if ((status === 301 || status === 302) && originalMethod === 'POST') return 'GET';
   // 307/308: preserve original method
   return originalMethod;
 }
 
 export function shouldKeepBody(originalMethod: string, status: number): boolean {
   if (status === 303) return false;
-  if (status === 301 || status === 302) return false;
-  // 307/308: keep body
+  if ((status === 301 || status === 302) && originalMethod === 'POST') return false;
+  // 307/308 + preserved methods: keep body
   return true;
 }
