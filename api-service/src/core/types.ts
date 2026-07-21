@@ -95,6 +95,7 @@ export interface RequestOptions {
   text?: string;
   method?: string;
   headers?: Record<string, string>;
+  /** 取消信号。注意：请求被 dedup 合并时仅首个发起者的 signal 生效，后加入者的 signal 被忽略。 */
   signal?: AbortSignal;
   timeout?: number;
   responseType?: 'json' | 'text' | 'blob' | 'arrayBuffer' | 'stream';
@@ -127,7 +128,7 @@ export interface RequestOptions {
   debounce?: number | false | { wait: number; abort?: boolean };
   /** Override per-call — throttle in ms, or `{ wait, edge }` for edge control. `false` to disable endpoint default */
   throttle?: number | false | { wait: number; edge?: 'leading' | 'trailing' | 'both' };
-  /** Skip in-flight request deduplication for this call */
+  /** Skip in-flight request deduplication for this call. dedup 开启时相同请求共享首个发起者的完整生命周期（含重试与缓存写入），后加入者的 options/hooks/signal 不生效。 */
   dedup?: boolean;
   /** 响应守卫 — adapter 返回后立即执行，早于 validateStatus/hooks。归一化后端差异。 */
   transformResponse?: TransformResponseFn;

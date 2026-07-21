@@ -954,10 +954,30 @@ describe('maxContentLength', () => {
 // ============================================================
 
 describe('gcTime / staleTime separation', () => {
-  it('gcTime defaults to Infinity (no auto GC)', () => {
-    const cache = new MemoryCache();
-    cache.set('key', 'value', 10);
-    expect(cache.has('key')).toBe(true);
+  it('gcTime defaults to 5 minutes (lazy GC, no background timer)', () => {
+    vi.useFakeTimers();
+    try {
+      const cache = new MemoryCache();
+      cache.set('key', 'value', 10 * 60 * 1000);
+      vi.advanceTimersByTime(4 * 60 * 1000);
+      expect(cache.has('key')).toBe(true);
+      vi.advanceTimersByTime(2 * 60 * 1000);
+      expect(cache.has('key')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gcTime can be overridden to Infinity', () => {
+    vi.useFakeTimers();
+    try {
+      const cache = new MemoryCache();
+      cache.set('key', 'value', 10 * 60 * 1000, [], Infinity);
+      vi.advanceTimersByTime(60 * 60 * 1000);
+      expect(cache.getStale('key')).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('gcTime removes entry after inactivity', async () => {
@@ -1443,5 +1463,212 @@ describe('createResultParser', () => {
     expect(apiResult.businessCode).toBe(0);
     expect(apiResult.businessMessage).toBe('reset');
     expect(apiResult.data).toBeNull();
+  });
+});
+
+// ============================================================
+// cacheKey 隔离性（searchParams / method）
+// ============================================================
+
+describe('cacheKey isolation', () => {
+  it('requests differing only in searchParams do not share cache', async () => {
+    const urls: string[] = [];
+    const adapter: RequestAdapter = {
+      async request(config) {
+        urls.push(config.url);
+        return { status: 200, data: { url: config.url }, headers: {} };
+      },
+    };
+    const client = makeClient(adapter, { cache: { ttl: 60000 } });
+
+    const r1 = await client.get('/api/items', { searchParams: { page: 1 } });
+    const r2 = await client.get('/api/items', { searchParams: { page: 2 } });
+    const r3 = await client.get('/api/items', { searchParams: { page: 1 } });
+
+    expect(urls).toHaveLength(2);
+    expect(r1).not.toEqual(r2);
+    expect(r3).toEqual(r1);
+  });
+
+  it('GET and HEAD on the same URL do not pollute each other', async () => {
+    let calls = 0;
+    const adapter: RequestAdapter = {
+      async request(config) {
+        calls++;
+        return { status: 200, data: { method: config.method }, headers: {} };
+      },
+    };
+    const client = makeClient(adapter, { cache: { ttl: 60000 } });
+
+    const g = await client.get('/api/res');
+    const h = await client.head('/api/res');
+
+    expect(calls).toBe(2);
+    expect(g).toEqual({ method: 'GET' });
+    expect(h).toEqual({ method: 'HEAD' });
+  });
+});
+
+// ============================================================
+// SWR 并发去重
+// ============================================================
+
+describe('SWR revalidation dedup', () => {
+  it('concurrent stale hits trigger only one background revalidation', async () => {
+    let callCount = 0;
+    const adapter: RequestAdapter = {
+      async request() {
+        callCount++;
+        await new Promise(r => setTimeout(r, 30));
+        return { status: 200, data: { n: callCount }, headers: {} };
+      },
+    };
+    const client = makeClient(adapter, { cache: { ttl: 10, mode: 'swr' } });
+
+    await client.get('/api/swr');
+    expect(callCount).toBe(1);
+
+    await new Promise(r => setTimeout(r, 15));
+
+    const [a, b, c] = await Promise.all([
+      client.get('/api/swr'),
+      client.get('/api/swr'),
+      client.get('/api/swr'),
+    ]);
+    expect(a).toEqual({ n: 1 });
+    expect(b).toEqual({ n: 1 });
+    expect(c).toEqual({ n: 1 });
+
+    await new Promise(r => setTimeout(r, 60));
+    expect(callCount).toBe(2);
+
+    const fresh = await client.get('/api/swr');
+    expect(fresh).toEqual({ n: 2 });
+  });
+});
+
+// ============================================================
+// 退避期间 abort 立即生效
+// ============================================================
+
+describe('retry backoff abort', () => {
+  it('abort during backoff rejects immediately without further attempts', async () => {
+    vi.useFakeTimers();
+    try {
+      let attempts = 0;
+      const adapter: RequestAdapter = {
+        async request() {
+          attempts++;
+          return { status: 500, data: {}, headers: {} };
+        },
+      };
+      const client = makeClient(adapter, {
+        retry: { limit: 5, backoff: 'fixed', baseDelay: 10000 },
+      });
+      const controller = new AbortController();
+
+      const p = client.get('/api/flaky', { signal: controller.signal });
+      const assertion = expect(p).rejects.toThrow(/abort/i);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(attempts).toBe(1);
+
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(100);
+      await assertion;
+      expect(attempts).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// ============================================================
+// string body（fetch adapter 透传 + text/plain）
+// ============================================================
+
+describe('text body handling', () => {
+  it('fetch adapter passes string body through without JSON encoding and sets text/plain', async () => {
+    const { createFetchAdapter } = await import('../adapters/fetch');
+
+    let capturedBody: unknown;
+    let capturedHeaders: Record<string, string> = {};
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body?: unknown; headers?: Record<string, string> }) => {
+      capturedBody = init.body;
+      capturedHeaders = init.headers ?? {};
+      return new Response(JSON.stringify({ code: 0, result: { ok: true } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }));
+
+    try {
+      const client = createApiClient({ adapter: createFetchAdapter() });
+      const result = await client.post('/api/text', { text: 'hello' });
+      expect(result).toEqual({ ok: true });
+      expect(capturedBody).toBe('hello');
+      expect(capturedHeaders['Content-Type']).toBe('text/plain;charset=UTF-8');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('explicit Content-Type header is not overridden', async () => {
+    let capturedHeaders: Record<string, string> = {};
+    const adapter: RequestAdapter = {
+      async request(config) {
+        capturedHeaders = config.headers;
+        return { status: 200, data: { ok: true }, headers: {} };
+      },
+    };
+    const client = makeClient(adapter);
+    await client.post('/api/text', { text: 'hello', headers: { 'content-type': 'application/custom' } });
+    expect(capturedHeaders['content-type']).toBe('application/custom');
+    expect(capturedHeaders['Content-Type']).toBeUndefined();
+  });
+});
+
+// ============================================================
+// dedup 共享完整重试生命周期
+// ============================================================
+
+describe('dedup shares retry lifecycle', () => {
+  it('late joiner receives the retried success result', async () => {
+    let attempts = 0;
+    const adapter: RequestAdapter = {
+      async request() {
+        attempts++;
+        if (attempts < 3) return { status: 500, data: {}, headers: {} };
+        return { status: 200, data: { ok: true, attempts }, headers: {} };
+      },
+    };
+    const client = makeClient(adapter, {
+      retry: { limit: 3, backoff: 'fixed', baseDelay: 10 },
+    });
+
+    const [r1, r2] = await Promise.all([
+      client.get('/api/flaky'),
+      client.get('/api/flaky'),
+    ]);
+
+    expect(r1).toEqual({ ok: true, attempts: 3 });
+    expect(r2).toEqual({ ok: true, attempts: 3 });
+    expect(attempts).toBe(3);
+  });
+
+  it('inFlight entry is removed after the full retry cycle', async () => {
+    let attempts = 0;
+    const adapter: RequestAdapter = {
+      async request() {
+        attempts++;
+        return { status: 200, data: { n: attempts }, headers: {} };
+      },
+    };
+    const client = makeClient(adapter);
+
+    await client.get('/api/data');
+    const r = await client.get('/api/data');
+    expect(r).toEqual({ n: 2 });
+    expect(attempts).toBe(2);
   });
 });

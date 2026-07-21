@@ -7,6 +7,9 @@ interface CacheEntry {
   tags: string[];
 }
 
+/** 默认 GC 时间 — 未访问条目 5 分钟后回收（与 TanStack Query 一致），惰性清理无后台定时器。 */
+const DEFAULT_GC_TIME = 5 * 60 * 1000;
+
 export class MemoryCache {
   #store = new Map<string, CacheEntry>();
   #tagIndex = new Map<string, Set<string>>();
@@ -60,8 +63,7 @@ export class MemoryCache {
   }
 
   set(key: string, value: unknown, staleTime: number, tags: string[] = [], gcTime?: number): void {
-    // gcTime 控制"未被访问"的条目多久后被 GC 回收。默认 Infinity 意味着只要 staleTime 检查能命中的条目就不会被 GC——这是刻意设计，与 TanStack Query 等主流库一致。staleTime 过期后 get() 会主动删除条目，不会无限堆积。
-    const effectiveGcTime = gcTime ?? Infinity;
+    const effectiveGcTime = gcTime ?? DEFAULT_GC_TIME;
 
     // Evict if at capacity (remove LRU = first key in Map)
     if (this.#store.size >= this.#maxSize && !this.#store.has(key)) {

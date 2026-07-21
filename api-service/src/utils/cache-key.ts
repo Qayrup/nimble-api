@@ -32,6 +32,8 @@ export function generateCacheKey(
   apiKey: string,
   params: unknown,
   data: unknown,
+  searchParams?: unknown,
+  method?: string,
 ): string {
   const EMPTY = '0';
   const paramsHash = isEmpty(params)
@@ -40,7 +42,10 @@ export function generateCacheKey(
   const dataHash = isEmpty(data)
     ? EMPTY
     : hashString(JSON.stringify(stableNormalize(data)));
-  return `${apiKey}:${paramsHash}:${dataHash}`;
+  const searchParamsHash = isEmpty(searchParams)
+    ? EMPTY
+    : hashString(JSON.stringify(stableNormalize(searchParams)));
+  return `${apiKey}:${paramsHash}:${dataHash}:${searchParamsHash}:${method ?? EMPTY}`;
 }
 
 function fnv1a32(str: string): string {

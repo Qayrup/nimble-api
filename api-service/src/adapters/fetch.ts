@@ -44,7 +44,9 @@ export function createFetchAdapter(timeout = 30000): RequestAdapter {
         const res = await fetch(url, {
           method,
           headers,
-          body: hasBody ? (isFormData ? (body as FormData) : JSON.stringify(body)) : undefined,
+          body: hasBody
+            ? (isFormData ? (body as FormData) : typeof body === 'string' ? body : JSON.stringify(body))
+            : undefined,
           signal: controller.signal,
         });
 

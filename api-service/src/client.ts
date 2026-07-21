@@ -124,6 +124,30 @@ function joinUrl(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
 }
 
+const BODY_AS_QS_METHODS = new Set(['GET', 'HEAD', 'DELETE', 'OPTIONS']);
+
+function abortError(): Error {
+  return new DOMException('The request was aborted', 'AbortError');
+}
+
+function interruptibleSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(abortError());
+      return;
+    }
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(abortError());
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 function mergeRetry(
   perRequest: RequestOptions['retry'],
   clientLevel: ApiOptions['retry'],
@@ -285,7 +309,6 @@ export class ApiClient {
     let url = this.#buildFullUrl(rawUrl, opts);
     let body = this.#extractBody(opts);
 
-    const BODY_AS_QS_METHODS = new Set(['GET', 'HEAD', 'DELETE', 'OPTIONS']);
     if (body != null && typeof body === 'object' && !Array.isArray(body) &&
         !(body instanceof FormData) &&
         BODY_AS_QS_METHODS.has(method) &&
@@ -301,7 +324,10 @@ export class ApiClient {
       ...opts.headers,
     };
     if (body != null && !(body instanceof FormData)) {
-      headers['Content-Type'] = 'application/json';
+      const hasContentType = Object.keys(headers).some(k => k.toLowerCase() === 'content-type');
+      if (!hasContentType) {
+        headers['Content-Type'] = typeof body === 'string' ? 'text/plain;charset=UTF-8' : 'application/json';
+      }
     }
 
     // CSRF
@@ -317,18 +343,25 @@ export class ApiClient {
 
     // cacheKey = '' when ttl <= 0 — acts as sentinel: all downstream if(cacheKey) checks skip caching
     const cacheKey = normalized.cache.ttl > 0 && !normalized.cache.skip
-      ? generateCacheKey(rawUrl, opts.params ?? {}, body ?? {})
+      ? generateCacheKey(rawUrl, opts.params ?? {}, body ?? {}, opts.searchParams ?? {}, method)
       : '';
 
     // Merge per-request signal with client-level dispose signal
     let mergedSignal: AbortSignal | undefined;
+    let cleanupMergedSignal: (() => void) | undefined;
     const disposeSig = this.#disposeController.signal;
     if (opts.signal && disposeSig) {
       const m = new AbortController();
       if (opts.signal.aborted || disposeSig.aborted) { m.abort(); }
       else {
-        opts.signal.addEventListener('abort', () => m.abort(), { once: true });
-        disposeSig.addEventListener('abort', () => m.abort(), { once: true });
+        const onOptsAbort = (): void => m.abort();
+        const onDisposeAbort = (): void => m.abort();
+        opts.signal.addEventListener('abort', onOptsAbort, { once: true });
+        disposeSig.addEventListener('abort', onDisposeAbort, { once: true });
+        cleanupMergedSignal = () => {
+          opts.signal!.removeEventListener('abort', onOptsAbort);
+          disposeSig.removeEventListener('abort', onDisposeAbort);
+        };
       }
       mergedSignal = m.signal;
     } else {
@@ -349,7 +382,32 @@ export class ApiClient {
       meta: {},
     };
 
-    return this.#executeWithRetry<T>(state, cacheKey);
+    // Skip dedup for non-serializable bodies (FormData, Blob, File) or when opted out.
+    // dedup 共享语义：后加入者复用首个发起者的完整请求（含重试），其自身 options/signal/hooks 不生效。
+    const skipDedup = !normalized.dedup || body instanceof FormData || body instanceof Blob;
+    const bodyHash = !skipDedup && body ? JSON.stringify(stableNormalize(body)) : '';
+    const dedupKey = skipDedup ? '' : `${method}:${url}:${bodyHash}`;
+
+    if (dedupKey) {
+      const existing = this.#inFlight.get(dedupKey);
+      if (existing) {
+        cleanupMergedSignal?.();
+        return existing as Promise<T>;
+      }
+    }
+
+    const promise = this.#executeWithRetry<T>(state, cacheKey);
+
+    if (dedupKey) this.#inFlight.set(dedupKey, promise);
+    if (dedupKey || cleanupMergedSignal) {
+      const onSettle = (): void => {
+        if (dedupKey) this.#inFlight.delete(dedupKey);
+        cleanupMergedSignal?.();
+      };
+      void promise.then(onSettle, onSettle);
+    }
+
+    return promise;
   }
 
   async #executeWithRetry<T>(state: RequestState, cacheKey: string): Promise<T> {
@@ -403,7 +461,8 @@ export class ApiClient {
           if (retryResult === stop) throw errorState.error;
 
           const delay = calcBackoff(retry, state.retryCount);
-          await new Promise(r => setTimeout(r, delay));
+          await interruptibleSleep(delay, state.request.signal);
+          if (state.request.signal?.aborted) throw abortError();
           state.response = undefined;
           return attempt();
         }
@@ -428,20 +487,7 @@ export class ApiClient {
       return shortCircuitResponse.data as T;
     }
 
-    const url = state.request.url;
-    const method = state.request.method;
-    // Skip dedup for non-serializable bodies (FormData, Blob, File) or when opted out
-    const skipDedup = !state.options.dedup || state.request.body instanceof FormData || state.request.body instanceof Blob;
-    const bodyHash = !skipDedup && state.request.body ? JSON.stringify(stableNormalize(state.request.body)) : '';
-    const dedupKey = skipDedup ? '' : `${method}:${url}:${bodyHash}`;
-
-    // 2. In-flight dedup
-    if (dedupKey) {
-      const inFlight = this.#inFlight.get(dedupKey);
-      if (inFlight) return inFlight as Promise<T>;
-    }
-
-    // 3. Cache check
+    // 2. Cache check
     const cacheMode = state.options.cache.mode;
     const cacheTags = state.options.cache.tags;
 
@@ -454,14 +500,23 @@ export class ApiClient {
         }
         if (stale) {
           state.cache = { key: cacheKey, hit: true, stale: true };
-          // Return stale, revalidate in background — failures are silent
-          this.#doFetch(state, cacheKey, cacheTags).catch((err: unknown) => {
-            if (err instanceof ApiError) {
-              if (this.#options.onSwrError) this.#options.onSwrError(err, cacheKey);
-            } else {
-              console.warn('[@nimble-api/api-service] SWR background revalidation failed', err);
-            }
-          });
+          // Return stale, revalidate in background — failures are silent.
+          // revalidate: 前缀 key 与请求 dedupKey 命名空间隔离，并发 stale 命中只触发一次后台请求。
+          const revalidateKey = `revalidate:${cacheKey}`;
+          if (!this.#inFlight.has(revalidateKey)) {
+            const revalidation = this.#doFetch(state, cacheKey, cacheTags)
+              .catch((err: unknown) => {
+                if (err instanceof ApiError) {
+                  if (this.#options.onSwrError) this.#options.onSwrError(err, cacheKey);
+                } else {
+                  console.warn('[@nimble-api/api-service] SWR background revalidation failed', err);
+                }
+              })
+              .finally(() => {
+                this.#inFlight.delete(revalidateKey);
+              });
+            this.#inFlight.set(revalidateKey, revalidation);
+          }
           return stale.data as T;
         }
       } else if (cacheMode === 'ttl') {
@@ -473,19 +528,7 @@ export class ApiClient {
       }
     }
 
-    const promise = this.#doFetch<T>(state, cacheKey, cacheTags);
-
-    if (dedupKey) {
-      this.#inFlight.set(dedupKey, promise);
-    }
-
-    try {
-      return await promise;
-    } finally {
-      if (dedupKey) {
-        this.#inFlight.delete(dedupKey);
-      }
-    }
+    return this.#doFetch<T>(state, cacheKey, cacheTags);
   }
 
   async #doFetch<T>(
@@ -783,7 +826,8 @@ export class ApiClient {
   }
 
   #dispatchVanilla(state: RequestState): void {
-    const hub = this.#eventHub!;
+    const hub = this.#eventHub;
+    if (!hub) return;
 
     const data = state.response?.data;
     const status = state.response?.status;
