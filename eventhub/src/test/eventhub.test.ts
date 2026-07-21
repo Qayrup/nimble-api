@@ -1715,3 +1715,289 @@ describe('EventHub core', () => {
     });
   });
 });
+
+// ============================================================
+// AbortSignal listener cleanup — manual unsub removes the abort listener
+// ============================================================
+
+describe('AbortSignal listener cleanup', () => {
+  it('on() — manual unsub removes the abort listener from signal', () => {
+    const hub = createTestHub();
+    const controller = new AbortController();
+    const spy = vi.spyOn(controller.signal, 'removeEventListener');
+    const unsub = hub.on('user:login', vi.fn(), { signal: controller.signal });
+    unsub();
+    expect(spy).toHaveBeenCalledWith('abort', unsub);
+  });
+
+  it('prependListener() — manual unsub removes the abort listener', () => {
+    const hub = createTestHub();
+    const controller = new AbortController();
+    const spy = vi.spyOn(controller.signal, 'removeEventListener');
+    const unsub = hub.prependListener('user:login', vi.fn(), { signal: controller.signal });
+    unsub();
+    expect(spy).toHaveBeenCalledWith('abort', unsub);
+  });
+
+  it('onPattern() — manual unsub removes the abort listener', () => {
+    const hub = createTestHub();
+    const controller = new AbortController();
+    const spy = vi.spyOn(controller.signal, 'removeEventListener');
+    const unsub = hub.onPattern('user:*', vi.fn() as never, { signal: controller.signal });
+    unsub();
+    expect(spy).toHaveBeenCalledWith('abort', unsub);
+  });
+
+  it('onAny() — manual unsub removes the abort listener', () => {
+    const hub = createTestHub();
+    const controller = new AbortController();
+    const spy = vi.spyOn(controller.signal, 'removeEventListener');
+    const unsub = hub.onAny(vi.fn() as never, { signal: controller.signal });
+    unsub();
+    expect(spy).toHaveBeenCalledWith('abort', unsub);
+  });
+
+  it('many() — manual unsub removes the abort listener', () => {
+    const hub = createTestHub();
+    const controller = new AbortController();
+    const spy = vi.spyOn(controller.signal, 'removeEventListener');
+    const unsub = hub.many('user:login', 3, vi.fn(), { signal: controller.signal });
+    unsub();
+    expect(spy).toHaveBeenCalledWith('abort', unsub);
+  });
+
+  it('prependOnceListener() — manual unsub removes the abort listener', () => {
+    const hub = createTestHub();
+    const controller = new AbortController();
+    const spy = vi.spyOn(controller.signal, 'removeEventListener');
+    const unsub = hub.prependOnceListener('user:login', vi.fn(), { signal: controller.signal });
+    unsub();
+    expect(spy).toHaveBeenCalledWith('abort', unsub);
+  });
+
+  it('abort-triggered unsub still works (removeEventListener inside is a safe no-op)', () => {
+    const hub = createTestHub();
+    const controller = new AbortController();
+    const handler = vi.fn();
+    hub.on('user:login', handler, { signal: controller.signal });
+    controller.abort();
+    hub.emit('user:login', { userId: '1', timestamp: 1 });
+    expect(handler).not.toHaveBeenCalled();
+    expect(hub.listenerCount('user:login')).toBe(0);
+  });
+});
+
+// ============================================================
+// dispose() settles pending consumers
+// ============================================================
+
+describe('dispose() settles pending consumers', () => {
+  it('pending events() next() resolves done after dispose', async () => {
+    const hub = createTestHub();
+    const iter = hub.events('user:login')[Symbol.asyncIterator]();
+    const pending = iter.next();
+    hub.dispose();
+    const result = await pending;
+    expect(result.done).toBe(true);
+  });
+
+  it('for await loop terminates after dispose', async () => {
+    const hub = createTestHub();
+    const received: string[] = [];
+    const loop = (async () => {
+      for await (const p of hub.events('user:login')) {
+        received.push(p.userId);
+      }
+    })();
+    hub.emit('user:login', { userId: '1', timestamp: 1 });
+    await new Promise(r => setTimeout(r, 0));
+    hub.dispose();
+    await loop;
+    expect(received).toEqual(['1']);
+  });
+
+  it('queued events() iterator drains buffer then reports done after dispose', async () => {
+    const hub = createTestHub();
+    const iter = hub.events('user:login')[Symbol.asyncIterator]();
+    hub.emit('user:login', { userId: '1', timestamp: 1 });
+    hub.dispose();
+    expect((await iter.next()).value).toEqual({ userId: '1', timestamp: 1 });
+    expect((await iter.next()).done).toBe(true);
+  });
+
+  it('once() rejects with DisposedError on dispose', async () => {
+    const hub = createTestHub();
+    const promise = hub.once('user:login');
+    hub.dispose();
+    await expect(promise).rejects.toMatchObject({ name: 'DisposedError' });
+  });
+
+  it('waitFor() rejects with DisposedError on dispose', async () => {
+    const hub = createTestHub();
+    const promise = hub.waitFor('order:created');
+    hub.dispose();
+    await expect(promise).rejects.toMatchObject({ name: 'DisposedError' });
+  });
+
+  it('once() with timeout settles via dispose, not the timer', async () => {
+    vi.useFakeTimers();
+    const hub = createTestHub();
+    const promise = hub.once('user:login', { timeout: 1000 });
+    const assertion = expect(promise).rejects.toMatchObject({ name: 'DisposedError' });
+    hub.dispose();
+    await assertion;
+    vi.useRealTimers();
+  });
+
+  it('dispose() during pending once() does not trigger meta events', () => {
+    const hub = createTestHub();
+    const before = vi.fn();
+    const after = vi.fn();
+    hub.on('beforeListenerRemove' as keyof TestEvents & string, before as never);
+    hub.on('listenerRemoved' as keyof TestEvents & string, after as never);
+    void hub.once('user:login').catch(() => {});
+    hub.dispose();
+    expect(before).not.toHaveBeenCalled();
+    expect(after).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================
+// off() removes pattern handlers
+// ============================================================
+
+describe('off() removes pattern handlers', () => {
+  it('off(event, handler) removes a matching onPattern handler', () => {
+    const hub = createTestHub();
+    const handler = vi.fn();
+    hub.onPattern('user:*', handler);
+    hub.off('user:login', handler as never);
+    hub.emit('user:login', { userId: '1', timestamp: 1 });
+    expect(handler).not.toHaveBeenCalled();
+    expect(hub.listenerCount()).toBe(0);
+  });
+
+  it('off() does not remove pattern handler when event does not match the pattern', () => {
+    const hub = createTestHub();
+    const handler = vi.fn();
+    hub.onPattern('user:*', handler);
+    hub.off('order:created', handler as never);
+    hub.emit('user:login', { userId: '1', timestamp: 1 });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('off() on a pattern handler fires meta events with the pattern name', () => {
+    const hub = createTestHub();
+    const before = vi.fn();
+    const after = vi.fn();
+    hub.on('beforeListenerRemove' as keyof TestEvents & string, before as never);
+    hub.on('listenerRemoved' as keyof TestEvents & string, after as never);
+    const handler = vi.fn();
+    hub.onPattern('user:*', handler);
+    hub.off('user:login', handler as never);
+    expect(before).toHaveBeenCalledWith({ event: 'user:*', handler });
+    expect(after).toHaveBeenCalledWith({ event: 'user:*' });
+  });
+
+  it('off() still prefers the exact-table match over pattern handlers', () => {
+    const hub = createTestHub();
+    const handler = vi.fn();
+    hub.on('user:login', handler);
+    hub.onPattern('user:*', handler);
+    hub.off('user:login', handler);
+    expect(hub.listeners('user:login')).toHaveLength(1);
+    hub.emit('user:login', { userId: '1', timestamp: 1 });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ============================================================
+// globToRegex delimiter escaping
+// ============================================================
+
+describe('globToRegex delimiter escaping', () => {
+  it('delimiter containing ^ is treated as a literal delimiter', () => {
+    const hub = createEventHub<Record<string, unknown>>({ delimiter: '^' });
+    const handler = vi.fn();
+    hub.onPattern('user^*', handler as never);
+    hub.emit('user^login' as never, { id: 1 } as never);
+    hub.emit('user^log^in' as never, { id: 2 } as never);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith('user^login', { id: 1 });
+  });
+});
+
+// ============================================================
+// meta events for subscriptions made inside meta handlers
+// ============================================================
+
+describe('meta events registered inside meta handlers', () => {
+  it('listenerAdded fires (deferred) for subscriptions made inside a meta handler', () => {
+    const hub = createTestHub();
+    const added: string[] = [];
+    hub.on('listenerAdded' as keyof TestEvents & string, ((p: { event: string }) => {
+      added.push(p.event);
+      if (p.event === 'user:login') hub.on('order:created', vi.fn());
+    }) as never);
+    hub.on('user:login', vi.fn());
+    expect(added).toEqual(['listenerAdded', 'user:login', 'order:created']);
+  });
+
+  it('beforeListenerAdd also fires (deferred) for nested subscriptions', () => {
+    const hub = createTestHub();
+    const before: string[] = [];
+    hub.on('beforeListenerAdd' as keyof TestEvents & string, ((p: { event: string }) => {
+      before.push(p.event);
+    }) as never);
+    hub.on('listenerAdded' as keyof TestEvents & string, ((p: { event: string }) => {
+      if (p.event === 'user:login') hub.on('order:created', vi.fn());
+    }) as never);
+    hub.on('user:login', vi.fn());
+    expect(before).toEqual(['listenerAdded', 'user:login', 'order:created']);
+  });
+
+  it('nested unsubscription inside a meta handler emits listenerRemoved (deferred)', () => {
+    const hub = createTestHub();
+    const removed: string[] = [];
+    const inner = vi.fn();
+    const unsubInner = hub.on('order:created', inner);
+    hub.on('listenerRemoved' as keyof TestEvents & string, ((p: { event: string }) => {
+      removed.push(p.event);
+      if (p.event === 'user:login') unsubInner();
+    }) as never);
+    const unsub = hub.on('user:login', vi.fn());
+    unsub();
+    expect(removed).toEqual(['user:login', 'order:created']);
+    expect(hub.listenerCount()).toBe(1); // only the meta listener remains
+  });
+
+  it('terminates when meta handler subscribes a bounded number of times', () => {
+    const hub = createTestHub();
+    const added: string[] = [];
+    hub.on('listenerAdded' as keyof TestEvents & string, ((p: { event: string }) => {
+      added.push(p.event);
+      if (p.event === 'user:login') hub.on('system:error', vi.fn());
+    }) as never);
+    hub.on('user:login', vi.fn());
+    expect(added).toEqual(['listenerAdded', 'user:login', 'system:error']);
+  });
+});
+
+// ============================================================
+// regex cache capacity
+// ============================================================
+
+describe('regex cache capacity', () => {
+  it('evicts oldest entries beyond capacity without breaking matching', () => {
+    const hub = createEventHub<Record<string, unknown>>();
+    const first = vi.fn();
+    const last = vi.fn();
+    hub.onPattern('p0:*', first as never);
+    for (let i = 1; i <= 300; i++) hub.onPattern(`p${i}:*`, vi.fn() as never);
+    hub.onPattern('p301:*', last as never);
+    hub.emit('p0:x' as never, {} as never);
+    hub.emit('p301:x' as never, {} as never);
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(last).toHaveBeenCalledTimes(1);
+  });
+});

@@ -126,11 +126,16 @@ const META_EVENT_NAMES = new Set([
   'listenerRemoved',
 ]);
 
+const REGEX_CACHE_MAX = 256;
+
 export class EventHub<T = Record<string, unknown>> {
   #handlers = new Map<string, HandlerRecord[]>();
   #anyHandlers: HandlerRecord[] = [];
   #wildcardHandlers: WildcardRecord[] = [];
   #regexCache = new Map<string, RegExp>();
+  #deferredMeta: Array<() => void> = [];
+  #activeIterators = new Set<() => void>();
+  #pendingWaits = new Set<() => void>();
   #destroyed = false;
   #emittingMeta = false;
   #maxListeners: number = Infinity;
@@ -238,7 +243,9 @@ export class EventHub<T = Record<string, unknown>> {
     }
     this.#addHandler(event, this.#handlers.get(event)!, record, 'push');
 
+    const signal = opts?.signal;
     const unsub = (): void => {
+      signal?.removeEventListener('abort', unsub);
       const handlers = this.#handlers.get(event);
       if (handlers) {
         this.#removeHandler(event, handlers, record);
@@ -246,8 +253,8 @@ export class EventHub<T = Record<string, unknown>> {
       }
     };
 
-    if (opts?.signal) {
-      opts.signal.addEventListener('abort', unsub, { once: true });
+    if (signal) {
+      signal.addEventListener('abort', unsub, { once: true });
     }
 
     return unsub;
@@ -271,7 +278,9 @@ export class EventHub<T = Record<string, unknown>> {
     }
     this.#addHandler(event, this.#handlers.get(event)!, record, 'unshift');
 
+    const signal = opts?.signal;
     const unsub = (): void => {
+      signal?.removeEventListener('abort', unsub);
       const handlers = this.#handlers.get(event);
       if (handlers) {
         this.#removeHandler(event, handlers, record);
@@ -279,8 +288,8 @@ export class EventHub<T = Record<string, unknown>> {
       }
     };
 
-    if (opts?.signal) {
-      opts.signal.addEventListener('abort', unsub, { once: true });
+    if (signal) {
+      signal.addEventListener('abort', unsub, { once: true });
     }
 
     return unsub;
@@ -299,42 +308,44 @@ export class EventHub<T = Record<string, unknown>> {
     let regex = this.#regexCache.get(pattern);
     if (!regex) {
       regex = globToRegex(pattern, this.#delimiter);
+      if (this.#regexCache.size >= REGEX_CACHE_MAX) {
+        // Map 迭代序即插入序，删除最旧条目
+        this.#regexCache.delete(this.#regexCache.keys().next().value!);
+      }
       this.#regexCache.set(pattern, regex);
     }
     const raw = this.#wrapHandler(handler as AnyHandler, opts);
     const record: HandlerRecord = { raw, original: handler as AnyHandler };
     const wc: WildcardRecord = { pattern, regex, record };
 
-    if (!this.#emittingMeta) {
-      this.#emitMeta('beforeListenerAdd', { event: pattern, handler: record.original }, { throwOnError: true });
-    }
+    this.#emitMeta('beforeListenerAdd', { event: pattern, handler: record.original }, { throwOnError: true });
     if (this.#maxListeners !== Infinity) {
       const pending = this.listenerCount(pattern as keyof T & string) + 1;
       if (pending > this.#maxListeners) this.#onMaxListenersExceeded(pattern, pending);
     }
     this.#wildcardHandlers.push(wc);
-    if (!this.#emittingMeta) {
-      this.#emitMeta('listenerAdded', { event: pattern });
-    }
+    this.#emitMeta('listenerAdded', { event: pattern });
 
+    const signal = opts?.signal;
     const unsub = (): void => {
+      signal?.removeEventListener('abort', unsub);
       const idx = this.#wildcardHandlers.indexOf(wc);
       if (idx !== -1) {
-        if (this.#metaMode !== 'simple' && !this.#emittingMeta) {
+        if (this.#metaMode !== 'simple') {
           this.#emitMeta('beforeListenerRemove',
             this.#metaMode === 'lean' ? { event: pattern } : { event: pattern, handler: wc.record.original },
             { throwOnError: true });
         }
         this.#cancelHandler(this.#wildcardHandlers[idx].record);
         this.#wildcardHandlers.splice(idx, 1);
-        if (this.#metaMode !== 'simple' && !this.#emittingMeta) {
+        if (this.#metaMode !== 'simple') {
           this.#emitMeta('listenerRemoved', { event: pattern });
         }
       }
     };
 
-    if (opts?.signal) {
-      opts.signal.addEventListener('abort', unsub, { once: true });
+    if (signal) {
+      signal.addEventListener('abort', unsub, { once: true });
     }
 
     return unsub;
@@ -352,36 +363,34 @@ export class EventHub<T = Record<string, unknown>> {
     const raw = this.#wrapHandler(handler as AnyHandler, opts);
     const record: HandlerRecord = { raw, original: handler as AnyHandler };
 
-    if (!this.#emittingMeta) {
-      this.#emitMeta('beforeListenerAdd', { event: '*', handler: record.original }, { throwOnError: true });
-    }
+    this.#emitMeta('beforeListenerAdd', { event: '*', handler: record.original }, { throwOnError: true });
     if (this.#maxListeners !== Infinity) {
       const pending = this.listenerCount('*' as keyof T & string) + 1;
       if (pending > this.#maxListeners) this.#onMaxListenersExceeded('*', pending);
     }
     this.#anyHandlers.push(record);
-    if (!this.#emittingMeta) {
-      this.#emitMeta('listenerAdded', { event: '*' });
-    }
+    this.#emitMeta('listenerAdded', { event: '*' });
 
+    const signal = opts?.signal;
     const unsub = (): void => {
+      signal?.removeEventListener('abort', unsub);
       const idx = this.#anyHandlers.indexOf(record);
       if (idx !== -1) {
-        if (this.#metaMode !== 'simple' && !this.#emittingMeta) {
+        if (this.#metaMode !== 'simple') {
           this.#emitMeta('beforeListenerRemove',
             this.#metaMode === 'lean' ? { event: '*' } : { event: '*', handler: record.original },
             { throwOnError: true });
         }
         this.#cancelHandler(this.#anyHandlers[idx]);
         this.#anyHandlers.splice(idx, 1);
-        if (this.#metaMode !== 'simple' && !this.#emittingMeta) {
+        if (this.#metaMode !== 'simple') {
           this.#emitMeta('listenerRemoved', { event: '*' });
         }
       }
     };
 
-    if (opts?.signal) {
-      opts.signal.addEventListener('abort', unsub, { once: true });
+    if (signal) {
+      signal.addEventListener('abort', unsub, { once: true });
     }
 
     return unsub;
@@ -405,10 +414,27 @@ export class EventHub<T = Record<string, unknown>> {
     return new Promise<T[K]>((resolve, reject) => {
       let timeoutId: ReturnType<typeof setTimeout> | undefined;
       let settled = false;
+
+      const cleanup = (): void => {
+        this.#pendingWaits.delete(onDispose);
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+        if (signal) signal.removeEventListener('abort', onAbort);
+      };
+
+      const onDispose = (): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        unsub();
+        const err = new Error('[@nimble-api/eventhub] once() rejected: instance destroyed');
+        err.name = 'DisposedError';
+        reject(err);
+      };
+
       const onAbort = (): void => {
         if (settled) return;
         settled = true;
-        if (timeoutId !== undefined) clearTimeout(timeoutId);
+        cleanup();
         unsub();
         const err = new Error('[@nimble-api/eventhub] once() aborted');
         err.name = 'AbortError';
@@ -420,19 +446,20 @@ export class EventHub<T = Record<string, unknown>> {
         (payload) => {
           if (opts?.filter && !opts.filter(payload)) return;
           settled = true;
-          if (timeoutId !== undefined) clearTimeout(timeoutId);
+          cleanup();
           unsub();
-          if (signal) signal.removeEventListener('abort', onAbort);
           resolve(payload);
         },
       );
+
+      this.#pendingWaits.add(onDispose);
 
       if (opts?.timeout != null) {
         timeoutId = setTimeout(() => {
           if (settled) return;
           settled = true;
+          cleanup();
           unsub();
-          if (signal) signal.removeEventListener('abort', onAbort);
           const err = new Error('[@nimble-api/eventhub] once() timed out');
           err.name = 'TimeoutError';
           reject(err);
@@ -487,7 +514,9 @@ export class EventHub<T = Record<string, unknown>> {
 
     this.#addHandler(event, this.#handlers.get(event)!, wrapped, 'push');
 
+    const signal = opts?.signal;
     const unsub = (): void => {
+      signal?.removeEventListener('abort', unsub);
       const handlers = this.#handlers.get(event);
       if (handlers) {
         this.#removeHandler(event, handlers, wrapped);
@@ -495,8 +524,8 @@ export class EventHub<T = Record<string, unknown>> {
       }
     };
 
-    if (opts?.signal) {
-      opts.signal.addEventListener('abort', unsub, { once: true });
+    if (signal) {
+      signal.addEventListener('abort', unsub, { once: true });
     }
 
     return unsub;
@@ -535,7 +564,9 @@ export class EventHub<T = Record<string, unknown>> {
 
     this.#addHandler(event, this.#handlers.get(event)!, record, 'unshift');
 
+    const signal = opts?.signal;
     const unsub = (): void => {
+      signal?.removeEventListener('abort', unsub);
       const handlers = this.#handlers.get(event);
       if (handlers) {
         this.#removeHandler(event, handlers, record);
@@ -543,8 +574,8 @@ export class EventHub<T = Record<string, unknown>> {
       }
     };
 
-    if (opts?.signal) {
-      opts.signal.addEventListener('abort', unsub, { once: true });
+    if (signal) {
+      signal.addEventListener('abort', unsub, { once: true });
     }
 
     return unsub;
@@ -558,12 +589,29 @@ export class EventHub<T = Record<string, unknown>> {
   ): void {
     if (this.#destroyed) return;
     const handlers = this.#handlers.get(event);
-    if (!handlers) return;
+    if (handlers) {
+      for (let i = 0; i < handlers.length; i++) {
+        if (handlers[i].original === (handler as AnyHandler)) {
+          this.#removeHandler(event, handlers, handlers[i]);
+          if (handlers.length === 0) this.#handlers.delete(event);
+          return;
+        }
+      }
+    }
 
-    for (let i = 0; i < handlers.length; i++) {
-      if (handlers[i].original === (handler as AnyHandler)) {
-        this.#removeHandler(event, handlers, handlers[i]);
-        if (handlers.length === 0) this.#handlers.delete(event);
+    for (let i = 0; i < this.#wildcardHandlers.length; i++) {
+      const wc = this.#wildcardHandlers[i];
+      if (wc.regex.test(event) && wc.record.original === (handler as AnyHandler)) {
+        if (this.#metaMode !== 'simple') {
+          this.#emitMeta('beforeListenerRemove',
+            this.#metaMode === 'lean' ? { event: wc.pattern } : { event: wc.pattern, handler: wc.record.original },
+            { throwOnError: true });
+        }
+        this.#cancelHandler(wc.record);
+        this.#wildcardHandlers.splice(i, 1);
+        if (this.#metaMode !== 'simple') {
+          this.#emitMeta('listenerRemoved', { event: wc.pattern });
+        }
         return;
       }
     }
@@ -591,14 +639,14 @@ export class EventHub<T = Record<string, unknown>> {
       for (let i = this.#wildcardHandlers.length - 1; i >= 0; i--) {
         const wc = this.#wildcardHandlers[i];
         if (wc.regex.test(event) && wc.record.original === handler) {
-          if (this.#metaMode !== 'simple' && !this.#emittingMeta) {
+          if (this.#metaMode !== 'simple') {
             this.#emitMeta('beforeListenerRemove',
               this.#metaMode === 'lean' ? { event: wc.pattern } : { event: wc.pattern, handler: wc.record.original },
               { throwOnError: true });
           }
           this.#cancelHandler(wc.record);
           this.#wildcardHandlers.splice(i, 1);
-          if (this.#metaMode !== 'simple' && !this.#emittingMeta) {
+          if (this.#metaMode !== 'simple') {
             this.#emitMeta('listenerRemoved', { event: wc.pattern });
           }
         }
@@ -616,14 +664,14 @@ export class EventHub<T = Record<string, unknown>> {
       for (let i = this.#wildcardHandlers.length - 1; i >= 0; i--) {
         if (this.#wildcardHandlers[i].regex.test(event)) {
           const wc = this.#wildcardHandlers[i];
-          if (this.#metaMode !== 'simple' && !this.#emittingMeta) {
+          if (this.#metaMode !== 'simple') {
             this.#emitMeta('beforeListenerRemove',
               this.#metaMode === 'lean' ? { event } : { event, handler: wc.record.original },
               { throwOnError: true });
           }
           this.#cancelHandler(wc.record);
           this.#wildcardHandlers.splice(i, 1);
-          if (this.#metaMode !== 'simple' && !this.#emittingMeta) {
+          if (this.#metaMode !== 'simple') {
             this.#emitMeta('listenerRemoved', { event });
           }
         }
@@ -640,12 +688,12 @@ export class EventHub<T = Record<string, unknown>> {
       // Process wildcard and any-handlers BEFORE clearing #handlers so meta event
       // listeners (beforeListenerRemove / listenerRemoved) can still receive events.
       for (const wh of this.#wildcardHandlers) {
-        if (this.#metaMode !== 'simple' && !this.#emittingMeta) {
+        if (this.#metaMode !== 'simple') {
           this.#emitMeta('beforeListenerRemove',
             this.#metaMode === 'full' ? { event: wh.pattern, handler: wh.record.original } : { event: wh.pattern });
         }
         this.#cancelHandler(wh.record);
-        if (this.#metaMode !== 'simple' && !this.#emittingMeta) {
+        if (this.#metaMode !== 'simple') {
           this.#emitMeta('listenerRemoved', { event: wh.pattern });
         }
       }
@@ -708,9 +756,13 @@ export class EventHub<T = Record<string, unknown>> {
         const queue: T[K][] = [];
         let resolveNext: ((v: IteratorResult<T[K]>) => void) | null = null;
         let done = false;
+        const signal = opts?.signal;
 
         const complete = (): void => {
+          if (done) return;
           done = true;
+          signal?.removeEventListener('abort', complete);
+          this.#activeIterators.delete(complete);
           unsub();
           if (resolveNext) {
             resolveNext({ value: undefined, done: true });
@@ -732,14 +784,16 @@ export class EventHub<T = Record<string, unknown>> {
               queue.push(payload);
             }
           },
-          { signal: opts?.signal },
+          { signal },
         );
 
-        if (opts?.signal) {
-          if (opts.signal.aborted) {
+        this.#activeIterators.add(complete);
+
+        if (signal) {
+          if (signal.aborted) {
             complete();
           } else {
-            opts.signal.addEventListener('abort', complete, { once: true });
+            signal.addEventListener('abort', complete, { once: true });
           }
         }
 
@@ -910,6 +964,7 @@ export class EventHub<T = Record<string, unknown>> {
     this.#wildcardHandlers.length = 0;
     this.#warned.clear();
     this.#regexCache.clear();
+    this.#deferredMeta.length = 0;
   }
 
   dispose(): void {
@@ -924,6 +979,12 @@ export class EventHub<T = Record<string, unknown>> {
     this.#wildcardHandlers.length = 0;
     this.#warned.clear();
     this.#regexCache.clear();
+    this.#deferredMeta.length = 0;
+    // 先清空订阅表再 settle，保证 complete/onDispose 内的 unsub 不再触发 meta
+    for (const complete of this.#activeIterators) complete();
+    this.#activeIterators.clear();
+    for (const settle of this.#pendingWaits) settle();
+    this.#pendingWaits.clear();
   }
 
   [Symbol.dispose](): void {
@@ -935,6 +996,7 @@ export class EventHub<T = Record<string, unknown>> {
   // -- safe (snapshot) --
   #emitAggregateSafe(event: string, payload: unknown): void {
     const specific = this.#handlers.get(event);
+    if (!specific?.length && this.#wildcardHandlers.length === 0 && this.#anyHandlers.length === 0) return;
     const specSnap = specific ? specific.slice() : [];
     const wildSnap = this.#wildcardHandlers.length > 0 ? this.#wildcardHandlers.slice() : [];
     const anySnap = this.#anyHandlers.length > 0 ? this.#anyHandlers.slice() : [];
@@ -954,6 +1016,7 @@ export class EventHub<T = Record<string, unknown>> {
 
   #emitFailFastSafe(event: string, payload: unknown): void {
     const specific = this.#handlers.get(event);
+    if (!specific?.length && this.#wildcardHandlers.length === 0 && this.#anyHandlers.length === 0) return;
     const specSnap = specific ? specific.slice() : [];
     const wildSnap = this.#wildcardHandlers.length > 0 ? this.#wildcardHandlers.slice() : [];
     const anySnap = this.#anyHandlers.length > 0 ? this.#anyHandlers.slice() : [];
@@ -967,6 +1030,7 @@ export class EventHub<T = Record<string, unknown>> {
 
   #emitSilentSafe(event: string, payload: unknown): void {
     const specific = this.#handlers.get(event);
+    if (!specific?.length && this.#wildcardHandlers.length === 0 && this.#anyHandlers.length === 0) return;
     const specSnap = specific ? specific.slice() : [];
     const wildSnap = this.#wildcardHandlers.length > 0 ? this.#wildcardHandlers.slice() : [];
     const anySnap = this.#anyHandlers.length > 0 ? this.#anyHandlers.slice() : [];
@@ -1018,6 +1082,7 @@ export class EventHub<T = Record<string, unknown>> {
   // -- emitSerial --
   async #emitSerialSafe(event: string, payload: unknown): Promise<void> {
     const specific = this.#handlers.get(event);
+    if (!specific?.length && this.#wildcardHandlers.length === 0 && this.#anyHandlers.length === 0) return;
     const specSnap = specific ? specific.slice() : [];
     const wildSnap = this.#wildcardHandlers.slice();
     const anySnap = this.#anyHandlers.slice();
@@ -1041,6 +1106,7 @@ export class EventHub<T = Record<string, unknown>> {
   // -- emitAsync --
   async #emitAsyncSafe(event: string, payload: unknown): Promise<PromiseSettledResult<unknown>[]> {
     const specific = this.#handlers.get(event);
+    if (!specific?.length && this.#wildcardHandlers.length === 0 && this.#anyHandlers.length === 0) return [];
     const specSnap = specific ? specific.slice() : [];
     const wildSnap = this.#wildcardHandlers.slice();
     const anySnap = this.#anyHandlers.slice();
@@ -1073,27 +1139,19 @@ export class EventHub<T = Record<string, unknown>> {
   #removeSingleWithMeta(event: string, list: HandlerRecord[], record: HandlerRecord): void {
     const idx = list.indexOf(record);
     if (idx === -1) return;
-    if (!this.#emittingMeta) {
-      this.#emitMeta('beforeListenerRemove', { event, handler: record.original }, { throwOnError: true });
-    }
+    this.#emitMeta('beforeListenerRemove', { event, handler: record.original }, { throwOnError: true });
     this.#cancelHandler(list[idx]);
     list.splice(idx, 1);
-    if (!this.#emittingMeta) {
-      this.#emitMeta('listenerRemoved', { event });
-    }
+    this.#emitMeta('listenerRemoved', { event });
   }
 
   #removeSingleLean(event: string, list: HandlerRecord[], record: HandlerRecord): void {
     const idx = list.indexOf(record);
     if (idx === -1) return;
-    if (!this.#emittingMeta) {
-      this.#emitMeta('beforeListenerRemove', { event });
-    }
+    this.#emitMeta('beforeListenerRemove', { event });
     this.#cancelHandler(list[idx]);
     list.splice(idx, 1);
-    if (!this.#emittingMeta) {
-      this.#emitMeta('listenerRemoved', { event });
-    }
+    this.#emitMeta('listenerRemoved', { event });
   }
 
   #removeSingleSilent(_event: string, list: HandlerRecord[], record: HandlerRecord): void {
@@ -1105,27 +1163,19 @@ export class EventHub<T = Record<string, unknown>> {
 
   #removeAllSmart(event: string, list: HandlerRecord[]): void {
     if (list.length === 0) return;
-    if (!this.#emittingMeta) {
-      this.#emitMeta('beforeListenerRemove', { event });
-    }
+    this.#emitMeta('beforeListenerRemove', { event });
     for (const record of list) this.#cancelHandler(record);
     list.length = 0;
-    if (!this.#emittingMeta) {
-      this.#emitMeta('listenerRemoved', { event });
-    }
+    this.#emitMeta('listenerRemoved', { event });
   }
 
   #removeAllFull(event: string, list: HandlerRecord[]): void {
     if (list.length === 0) return;
     const records = list.slice();
     for (const record of records) {
-      if (!this.#emittingMeta) {
-        this.#emitMeta('beforeListenerRemove', { event, handler: record.original }, { throwOnError: true });
-      }
+      this.#emitMeta('beforeListenerRemove', { event, handler: record.original }, { throwOnError: true });
       this.#cancelHandler(record);
-      if (!this.#emittingMeta) {
-        this.#emitMeta('listenerRemoved', { event });
-      }
+      this.#emitMeta('listenerRemoved', { event });
     }
     list.length = 0;
   }
@@ -1144,9 +1194,7 @@ export class EventHub<T = Record<string, unknown>> {
     record: HandlerRecord,
     pos: 'push' | 'unshift',
   ): void {
-    if (!this.#emittingMeta) {
-      this.#emitMeta('beforeListenerAdd', { event, handler: record.original }, { throwOnError: true });
-    }
+    this.#emitMeta('beforeListenerAdd', { event, handler: record.original }, { throwOnError: true });
     // Check max listeners BEFORE push — if maxListenersAction is 'throw',
     // the error propagates before the handler is in the list (no orphan).
     if (this.#maxListeners !== Infinity) {
@@ -1156,9 +1204,7 @@ export class EventHub<T = Record<string, unknown>> {
       }
     }
     pos === 'unshift' ? list.unshift(record) : list.push(record);
-    if (!this.#emittingMeta) {
-      this.#emitMeta('listenerAdded', { event });
-    }
+    this.#emitMeta('listenerAdded', { event });
   }
 
   #wrapHandler(handler: AnyHandler, opts?: SubscribeOptions): AnyHandler {
@@ -1197,20 +1243,30 @@ export class EventHub<T = Record<string, unknown>> {
     payload: MetaEventPayloads[K],
     opts?: { throwOnError?: boolean },
   ): void {
-    const handlers = this.#handlers.get(event);
-    if (!handlers || handlers.length === 0) return;
+    // meta handler 内再注册/移除监听时，入队延后补发：既不丢 meta 序列，也避免同步递归
+    if (this.#emittingMeta) {
+      this.#deferredMeta.push(() => this.#emitMeta(event, payload, opts));
+      return;
+    }
 
-    this.#emittingMeta = true;
-    try {
-      for (const record of handlers.slice()) {
-        if (opts?.throwOnError) {
-          record.raw(payload);
-        } else {
-          try { record.raw(payload); } catch { /* meta handler errors are silently ignored */ }
+    const handlers = this.#handlers.get(event);
+    if (handlers && handlers.length > 0) {
+      this.#emittingMeta = true;
+      try {
+        for (const record of handlers.slice()) {
+          if (opts?.throwOnError) {
+            record.raw(payload);
+          } else {
+            try { record.raw(payload); } catch { /* meta handler errors are silently ignored */ }
+          }
         }
+      } finally {
+        this.#emittingMeta = false;
       }
-    } finally {
-      this.#emittingMeta = false;
+    }
+
+    while (this.#deferredMeta.length > 0) {
+      this.#deferredMeta.shift()!();
     }
   }
 }
