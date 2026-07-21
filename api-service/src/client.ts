@@ -158,6 +158,7 @@ const DEFAULT_OPTIONS: NormalizedRequestOptions = {
   dedup: true,
   transformResponse: null,
   parser: null,
+  autoErrorEvents: true,
 };
 
 export class ApiClient {
@@ -169,6 +170,7 @@ export class ApiClient {
   #destroyed = false;
   #eventHub: EventHubLike | undefined;
   #disposeController = new AbortController();
+  #dispatchEvents: (state: RequestState) => void;
 
   constructor(options: ApiOptions = {}) {
     this.#options = { ...options };
@@ -178,6 +180,15 @@ export class ApiClient {
 
     if (options.cache !== false) {
       this.#cache = new MemoryCache(options.cache?.maxSize ?? Infinity);
+    }
+
+    // 惰性绑定 — 构造时决定 dispatch 版本，热路径零分支
+    const autoEvents = options.autoErrorEvents !== false;
+    const hub = options.eventHub;
+    if (hub && autoEvents) {
+      this.#dispatchEvents = (s) => { this.#dispatchVanilla(s); this.#emitAutoError(s, hub); };
+    } else {
+      this.#dispatchEvents = this.#dispatchVanilla;
     }
   }
 
@@ -710,6 +721,8 @@ export class ApiClient {
         opts.parser
         ?? this.#options.parser
         ?? DEFAULT_OPTIONS.parser,
+      autoErrorEvents:
+        this.#options.autoErrorEvents ?? DEFAULT_OPTIONS.autoErrorEvents,
     };
   }
 
@@ -769,9 +782,8 @@ export class ApiClient {
     }
   }
 
-  #dispatchEvents(state: RequestState): void {
-    const hub = this.#eventHub;
-    if (!hub) return;
+  #dispatchVanilla(state: RequestState): void {
+    const hub = this.#eventHub!;
 
     const data = state.response?.data;
     const status = state.response?.status;
@@ -788,7 +800,6 @@ export class ApiClient {
 
     // onError
     if (state.options.onError && state.error) {
-      // 优先用 parser 提取的 businessCode，其次从 raw data.code 取
       const code = state.error.businessCode
         ?? (typeof state.error.data === 'object' && state.error.data !== null
           ? (state.error.data as Record<string, unknown>).code
@@ -804,6 +815,18 @@ export class ApiClient {
           else console.warn(`[@nimble-api/api-service] Event handler threw for "${eventKey}"`, err);
         }
       }
+    }
+  }
+
+  #emitAutoError(state: RequestState, hub: EventHubLike): void {
+    if (!state.error?.businessCode) return;
+    const payload = {
+      code: state.error.businessCode,
+      message: state.error.businessMessage ?? state.error.message,
+    };
+    try { hub.emit(`error:${state.error.businessCode}`, payload); } catch (err: unknown) {
+      if (this.#options.onEventError) this.#options.onEventError(`error:${state.error.businessCode}`, err);
+      else console.warn(`[@nimble-api/api-service] Event handler threw for "error:${state.error.businessCode}"`, err);
     }
   }
 

@@ -165,6 +165,7 @@ export interface NormalizedRequestOptions {
   dedup: boolean;
   transformResponse: TransformResponseFn | null;
   parser: ResponseParser | null;
+  autoErrorEvents: boolean;
 }
 
 // === Client Options ===
@@ -198,6 +199,12 @@ export interface ApiOptions {
    * 返回值覆盖 status、data、headers 三字段。抛异常 = 中断请求。
    */
   transformResponse?: TransformResponseFn;
+  /**
+   * 自动发射 error:{businessCode} 事件。默认 true。
+   * 当 onError 未匹配到显式 key 时，自动 emit 'error:{businessCode}'。
+   * 设为 false 则只发射 onError 显式声明的事件。
+   */
+  autoErrorEvents?: boolean;
   /**
    * 业务解析器 — validateStatus 通过后执行。
    * 判断业务成功/失败并解包响应体。

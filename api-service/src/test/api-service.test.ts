@@ -1301,8 +1301,9 @@ describe('parser', () => {
       });
     } catch { /* expected */ }
 
-    expect(events).toHaveLength(1);
+    expect(events).toHaveLength(2); // onError 匹配 + auto emit
     expect(events[0].key).toBe('account:blocked');
+    expect(events[1].key).toBe('error:10086');
     expect(events[0].payload).toEqual({ code: '10086', message: '账户异常' });
   });
 
@@ -1323,6 +1324,41 @@ describe('parser', () => {
 
     const r3 = defaultParser({ status: 200, data: { name: 'test' } });
     expect(r3).toEqual({ ok: true, data: { name: 'test' } });
+  });
+
+  it('autoErrorEvents → 自动发射 error:{businessCode}', async () => {
+    const events: Array<{ key: string; payload: any }> = [];
+    const hub: EventHubLike = {
+      emit: (event, payload) => events.push({ key: event, payload: payload as any }),
+      on: () => () => {},
+    };
+    const client = makeClient(
+      createAdapter({ status: 200, data: { code: 10001, msg: '余额不足' }, headers: {} }),
+      { eventHub: hub, retry: false },
+    );
+
+    // 不传 onError → 自动发射 error:10001
+    try { await client.get('/api/data'); } catch { /* expected */ }
+
+    expect(events).toHaveLength(1);
+    expect(events[0].key).toBe('error:10001');
+  });
+
+  it('autoErrorEvents: false → 不自动发射', async () => {
+    const events: Array<{ key: string; payload: any }> = [];
+    const hub: EventHubLike = {
+      emit: (event, payload) => events.push({ key: event, payload: payload as any }),
+      on: () => () => {},
+    };
+    const client = makeClient(
+      createAdapter({ status: 200, data: { code: 10001, msg: '余额不足' }, headers: {} }),
+      { eventHub: hub, retry: false, autoErrorEvents: false },
+    );
+
+    // autoErrorEvents 关闭 → 不发射任何事件（没传 onError）
+    try { await client.get('/api/data'); } catch { /* expected */ }
+
+    expect(events).toHaveLength(0);
   });
 });
 
