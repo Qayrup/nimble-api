@@ -58,7 +58,8 @@ export function createFetchAdapter(timeout = 30000): RequestAdapter {
           data = await res.text();
         } else {
           const text = await res.text();
-          if (!text) {
+          // 204 No Content / 304 Not Modified 按 HTTP 规范不得有响应体
+          if (!text || res.status === 204 || res.status === 304) {
             data = null;
           } else {
             try {

@@ -31,6 +31,8 @@ const api = createApiClient({
 | `xsrf` | `boolean` | `true` | 设为 `false` 关闭 XSRF 自动注入 |
 | `onSwrError` | `(error: ApiError, key: string) => void` | — | SWR 后台刷新失败回调 |
 | `onEventError` | `(event: string, error: unknown) => void` | `console.warn` | emit 事件处理器抛错时的回调 |
+| `transformResponse` | `TransformResponseFn` | — | 响应守卫 — adapter 返回后立即执行，归一化后端格式 |
+| `parser` | `ResponseParser` | `defaultParser` | 业务解析器 — validateStatus 通过后判断成功/失败并解包 |
 
 ## HTTP 方法
 
@@ -71,6 +73,8 @@ api.options<T>('/users/{id}', opts?)
 | `debounce` | `number \| false \| { wait: number; abort?: boolean }` | 防抖（ms）；对象形式 `abort: true` 会用 AbortController 取消已发出的 HTTP 请求 |
 | `throttle` | `number \| false \| { wait: number; edge?: 'leading' \| 'trailing' \| 'both' }` | 节流（ms）；`edge` 控制发射边 |
 | `dedup` | `boolean` | `true` | 设为 `false` 跳过请求去重 |
+| `transformResponse` | `TransformResponseFn` | — | 响应守卫 — 归一化后端响应格式 |
+| `parser` | `ResponseParser` | `defaultParser` | 业务解析器 — 判断业务成功/失败并解包 |
 | `maxBodyLength` | `number` | — | 请求体大小上限（字节） |
 | `deleteBodyMode` | `'query' \| 'json'` | `'query'` | DELETE/GET/HEAD/OPTIONS body 处理方式 |
 | `uploadFieldName` | `string` | `'file'` | UniApp 适配器文件上传表单字段名 |
@@ -239,6 +243,75 @@ const user = await api.get('/users/1', { schema: UserSchema });
 // safeParse 模式 — 校验失败抛出 ApiError
 ```
 
+## 响应处理
+
+### `transformResponse` — 响应守卫
+
+adapter 返回后立即执行，早于 `validateStatus` 和所有 hooks。用于归一化不同后端的响应格式。
+
+```ts
+const api = createApiClient({
+  // ABP 后端格式归一化
+  transformResponse: (resp) => {
+    const d = resp.data as any
+    if (d?.error) {
+      return { ...resp, data: { code: d.error.code, msg: d.error.message } }
+    }
+    return { status: 200, data: { code: 0, msg: 'ok', result: d } }
+  },
+})
+```
+
+**关键规则**：
+- 返回值覆盖 `status` / `data` / `headers` 三字段
+- 修改 `status` 会影响后续 `validateStatus` 判断
+- 抛异常中断请求，包装为 `ERR_BAD_RESPONSE`
+- 不传则跳过（原样通过）
+
+### `parser` — 业务解析器
+
+`validateStatus` 通过后执行。判断业务成功/失败并解包数据。默认使用 `defaultParser`。
+
+```ts
+// 默认 parser — 识别 { code, msg, result } 格式
+const api = createApiClient() // parser 自动使用 defaultParser
+
+// 自定义 parser — ABP 裸数据
+const api = createApiClient({
+  parser: (resp) => {
+    const d = resp.data as any
+    if (d?.error) return { ok: false, businessCode: d.error.code, businessMessage: d.error.message }
+    return { ok: true, data: d }
+  },
+})
+```
+
+**defaultParser 行为**：
+- `{ code: 0, result: {...} }` → 解包 `result`
+- `{ code: 0 }` → 原样返回
+- `{ name: 'Alice' }` (无 code) → 原样返回
+- `{ code: 10001, msg: '...' }` → 抛 `ERR_BUSINESS`
+
+### `createResultParser()` — 结果包装器
+
+成功时将解包数据包装为结构化 `ApiResult<T>`。
+
+```ts
+const api = createApiClient({ parser: createResultParser() })
+
+// 默认
+const data = await api.get('/user/1')
+// → { name: 'Alice' }
+
+// 使用 createResultParser
+const r = await api.get('/user/1')
+// → { ok: true, httpStatus: 200, businessCode: 0, businessMessage: 'ok', data: { name: 'Alice' } }
+```
+
+支持传入自定义 `innerParser`：`createResultParser(myAbpParser)`。
+
+详见 [响应处理](./response) 文档。
+
 ## `createTypedApi(client, endpoints)`
 
 通过 `EndpointSpec` 定义端点，生成类型安全的 API 方法。参数和返回值类型自动从 spec 推导。
@@ -322,6 +395,7 @@ const immediate = await api.searchUsers({ params: { q: 'nimble' }, debounce: fal
 | `onSuccess` / `onError` | 请求级事件 |
 | `entities` / `invalidates` | 缓存标签 |
 | `headers` / `timeout` / `responseType` / `validateStatus` | 请求级覆盖 |
+| `transformResponse` / `parser` | 响应处理，见上方响应处理章节 |
 
 ## 事件派发
 

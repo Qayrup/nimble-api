@@ -19,6 +19,9 @@
   put/patch/        │    ├─ beforeRequest hooks │
   delete            │    ├─ cache check         │
                     │    ├─ adapter.request()   │
+                    │    ├─ transformResponse   │
+                    │    ├─ validateStatus      │
+                    │    ├─ parser              │
                     │    ├─ schema validate     │
                     │    ├─ afterResponse hooks │
                     │    ├─ cache store         │
@@ -28,7 +31,9 @@
                     │   ├─ MemoryCache          │
                     │   ├─ RequestAdapter       │
                     │   ├─ EventHub             │
-                    │   └─ Hooks pipeline       │
+                    │   ├─ Hooks pipeline       │
+                    │   ├─ transformResponse    │
+                    │   └─ parser               │
                     └──────────────────────────┘
 ```
 
@@ -36,16 +41,19 @@
 
 一次完整的请求经过以下阶段：
 
-1. **beforeRequest 钩子** — 修改请求配置（URL、headers、body）
-2. **请求去重检查** — 相同请求并发只发一次
-3. **缓存检查** — TTL 命中直接返回 / SWR 命中返回旧值后台刷新
-4. **适配器请求** — 实际 HTTP 调用
-5. **Schema 校验** — `parse()` 或 `safeParse()` 验证响应
-6. **状态码检查** — 非 2xx 抛出 `ApiError`
-7. **afterResponse 钩子** — 后置处理（逆序执行）
-8. **缓存存储** — 写入缓存 + 提取实体标签
-9. **事件派发** — 通过 EventHub 发射 onSuccess/onError 事件
-10. **重试（失败时）** — beforeRetry → backoff → 重新发起
+1. **init 钩子** — 修改请求选项（注入 token、默认参数等）
+2. **beforeRequest 钩子** — 修改请求配置（URL、headers、body）
+3. **请求去重检查** — 相同请求并发只发一次
+4. **缓存检查** — TTL 命中直接返回 / SWR 命中返回旧值后台刷新
+5. **适配器请求** — 实际 HTTP 调用
+6. **transformResponse** — 响应格式归一化（ABP / 通用格式）
+7. **状态码检查** — 非 2xx 抛出 `ApiError`（含 parser 提取的错误消息）
+8. **parser** — 业务成功/失败判断 + 数据解包（默认识别 `{code, msg, result}`）
+9. **Schema 校验** — `parse()` 或 `safeParse()` 验证响应
+10. **afterResponse 钩子** — 后置处理（逆序执行）
+11. **缓存存储** — 写入缓存 + 提取实体标签
+12. **事件派发** — 通过 EventHub 发射 onSuccess/onError 事件
+13. **重试（失败时）** — beforeRetry → backoff → 重新发起（ERR_BUSINESS 不重试）
 
 ## 核心类
 
@@ -66,6 +74,8 @@
 | `runAfterResponse()` | 运行 afterResponse 钩子链 |
 | `runBeforeRetry()` | 运行 beforeRetry 钩子链 |
 | `runBeforeError()` | 运行 beforeError 钩子链 |
+| `defaultParser()` | 默认业务解析器，识别 `{code, msg, result}` |
+| `createResultParser()` | 创建结果包装器，成功时返回 `ApiResult<T>` |
 | `createFetchAdapter()` | 创建 fetch 适配器 |
 | `createUniAppAdapter()` | 创建 uni-app 适配器 |
 | `createTypedApi()` | 创建类型安全的端点包装器 |

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createApiClient, ApiClient, MemoryCache, ApiError, stop } from '../index';
-import type { RequestAdapter, AdapterResponse, ApiOptions } from '../core/types';
+import { createApiClient, ApiClient, MemoryCache, ApiError, stop, defaultParser, createResultParser } from '../index';
+import type { RequestAdapter, AdapterResponse, ApiOptions, EventHubLike } from '../core/types';
 
 // ============================================================
 // Test helpers
@@ -22,6 +22,14 @@ function createMockAdapter(responses: Map<string, AdapterResponse> = new Map()):
 
 function makeClient(adapter?: RequestAdapter, opts?: ApiOptions) {
   return createApiClient({ adapter, ...opts });
+}
+
+function createAdapter(response: AdapterResponse): RequestAdapter {
+  return {
+    async request() {
+      return response;
+    },
+  };
 }
 
 // ============================================================
@@ -1084,5 +1092,320 @@ describe('debounce / throttle on typed API', () => {
     expect(nonNull).toHaveLength(1);
     expect(nonNull[0]).toEqual({ ok: true });
     expect(callCount).toBe(1);
+  });
+});
+
+// ============================================================
+// transformResponse
+// ============================================================
+
+describe('transformResponse', () => {
+  it('归一化 ABP 错误格式 → 转换 data 但不改 status', async () => {
+    const adapter: RequestAdapter = {
+      async request() {
+        return {
+          status: 400,
+          data: { error: { code: 'User:NotFound', message: '用户不存在' } },
+          headers: { 'content-type': 'application/json' },
+        };
+      },
+    };
+    const client = makeClient(adapter, {
+      retry: false,
+      transformResponse: (resp) => {
+        const d = resp.data as any;
+        if (d?.error) {
+          return {
+            ...resp,
+            data: { code: d.error.code, msg: d.error.message },
+          };
+        }
+        return resp;
+      },
+    });
+
+    try {
+      await client.get('/api/user/1');
+      expect.fail('should throw');
+    } catch (err) {
+      const apiErr = err as ApiError;
+      expect(apiErr.data).toEqual({ code: 'User:NotFound', msg: '用户不存在' });
+      expect(apiErr.status).toBe(400);
+    }
+  });
+
+  it('守卫修改 status → validateStatus 用新 status 判断', async () => {
+    const adapter: RequestAdapter = {
+      async request() {
+        return {
+          status: 400,
+          data: { error: { code: 'X', message: 'fail' } },
+          headers: {},
+        };
+      },
+    };
+    const client = makeClient(adapter, {
+      retry: false,
+      transformResponse: (resp) => {
+        return { ...resp, status: 200, data: { code: 'X', msg: 'fail' } };
+      },
+      parser: (resp) => ({ ok: true, data: resp.data }),
+    });
+
+    const result = await client.get('/api/user/1');
+    expect(result).toEqual({ code: 'X', msg: 'fail' });
+  });
+
+  it('守卫抛异常 → 包装为 ApiError 且不重试', async () => {
+    let attempts = 0;
+    const adapter: RequestAdapter = {
+      async request() {
+        attempts++;
+        return { status: 200, data: null, headers: {} };
+      },
+    };
+    const client = makeClient(adapter, {
+      transformResponse: () => {
+        throw new Error('解析失败');
+      },
+    });
+
+    try {
+      await client.get('/api/data');
+      expect.fail('should throw');
+    } catch (err) {
+      const apiErr = err as ApiError;
+      expect(apiErr.message).toContain('解析失败');
+      expect(apiErr.code).toBe('ERR_BAD_RESPONSE');
+    }
+    expect(attempts).toBe(1);
+  });
+
+  it('不传 transformResponse → 行为不变', async () => {
+    const adapter: RequestAdapter = {
+      async request() {
+        return { status: 200, data: { items: [1, 2] }, headers: {} };
+      },
+    };
+    const client = makeClient(adapter);
+    const result = await client.get('/api/data');
+    expect(result).toEqual({ items: [1, 2] });
+  });
+
+  it('admin 端独立 transformResponse', async () => {
+    const responses = new Map<string, AdapterResponse>();
+    responses.set('GET:/api/data', {
+      status: 200,
+      data: { code: 0, msg: 'success', result: { key: 'val' } },
+      headers: {},
+    });
+
+    const client = makeClient(createMockAdapter(responses), {
+      transformResponse: (resp) => {
+        const d = resp.data as any;
+        if (d?.code === 0 && d.result !== undefined) {
+          return { ...resp, data: d.result };
+        }
+        return resp;
+      },
+    });
+
+    const result = await client.get('/api/data');
+    expect(result).toEqual({ key: 'val' });
+  });
+});
+
+// ============================================================
+// parser
+// ============================================================
+
+describe('parser', () => {
+  it('defaultParser: code=0 → 解包 result', async () => {
+    const client = makeClient(
+      createAdapter({ status: 200, data: { code: 0, msg: 'ok', result: { items: [1, 2] } }, headers: {} }),
+    );
+    const result = await client.get('/api/data');
+    expect(result).toEqual({ items: [1, 2] });
+  });
+
+  it('defaultParser: code=0 无 result → 原样返回', async () => {
+    const client = makeClient(
+      createAdapter({ status: 200, data: { code: 0 }, headers: {} }),
+    );
+    const result = await client.get('/api/data');
+    expect(result).toEqual({ code: 0 });
+  });
+
+  it('defaultParser: code≠0 → 抛 ERR_BUSINESS', async () => {
+    const client = makeClient(
+      createAdapter({ status: 200, data: { code: 10001, msg: '余额不足' }, headers: {} }),
+      { retry: false },
+    );
+    try {
+      await client.get('/api/data');
+      expect.fail('should throw');
+    } catch (err) {
+      const apiErr = err as ApiError;
+      expect(apiErr.code).toBe('ERR_BUSINESS');
+      expect(apiErr.businessCode).toBe('10001');
+      expect(apiErr.message).toBe('余额不足');
+    }
+  });
+
+  it('ERR_BUSINESS 不触发重试', async () => {
+    let attempts = 0;
+    const adapter: RequestAdapter = {
+      async request() {
+        attempts++;
+        return { status: 200, data: { code: -1, msg: '业务失败' }, headers: {} };
+      },
+    };
+    const client = makeClient(adapter, {
+      retry: { limit: 3, backoff: 'fixed', baseDelay: 10 },
+    });
+    try {
+      await client.get('/api/data');
+    } catch { /* expected */ }
+    expect(attempts).toBe(1);
+  });
+
+  it('自定义 parser: ABP 裸数据 → 成功原样返回', async () => {
+    const client = makeClient(
+      createAdapter({ status: 200, data: { id: '1', name: 'Alice' }, headers: {} }),
+      {
+        parser: (resp) => {
+          const d = resp.data as any;
+          if (d?.error) return { ok: false, businessCode: d.error.code, businessMessage: d.error.message };
+          return { ok: true, data: d };
+        },
+      },
+    );
+    const result = await client.get('/api/user/1');
+    expect(result).toEqual({ id: '1', name: 'Alice' });
+  });
+
+  it('onError 按 businessCode 精确匹配事件 key', async () => {
+    const events: Array<{ key: string; payload: any }> = [];
+    const hub: EventHubLike = {
+      emit: (event, payload) => events.push({ key: event, payload: payload as any }),
+      on: () => () => {},
+    };
+    const client = makeClient(
+      createAdapter({ status: 200, data: { code: 10086, msg: '账户异常' }, headers: {} }),
+      { retry: false, eventHub: hub },
+    );
+
+    try {
+      await client.get('/api/check', {
+        onError: { '10086': 'account:blocked', default: 'api:error' },
+      });
+    } catch { /* expected */ }
+
+    expect(events).toHaveLength(1);
+    expect(events[0].key).toBe('account:blocked');
+    expect(events[0].payload).toEqual({ code: '10086', message: '账户异常' });
+  });
+
+  it('不传 parser → 无 code 字段的普通响应原样返回', async () => {
+    const client = makeClient(
+      createAdapter({ status: 200, data: { items: [1, 2] }, headers: {} }),
+    );
+    const result = await client.get('/api/data');
+    expect(result).toEqual({ items: [1, 2] });
+  });
+
+  it('defaultParser 单独使用', () => {
+    const r1 = defaultParser({ status: 200, data: { code: 0, result: { x: 1 } } });
+    expect(r1).toEqual({ ok: true, data: { x: 1 } });
+
+    const r2 = defaultParser({ status: 200, data: { code: 'ERR', msg: '失败' } });
+    expect(r2).toEqual({ ok: false, businessCode: 'ERR', businessMessage: '失败' });
+
+    const r3 = defaultParser({ status: 200, data: { name: 'test' } });
+    expect(r3).toEqual({ ok: true, data: { name: 'test' } });
+  });
+});
+
+// ============================================================
+// createResultParser
+// ============================================================
+
+describe('createResultParser', () => {
+  it('默认 innerParser → code=0 返回 ApiResult', async () => {
+    const client = makeClient(
+      createAdapter({
+        status: 201,
+        data: { code: 0, msg: '创建成功', result: { id: '1', name: 'Alice' } },
+        headers: {},
+      }),
+      { parser: createResultParser() },
+    );
+
+    const result: any = await client.post('/api/user', { json: { name: 'Alice' } });
+    expect(result.ok).toBe(true);
+    expect(result.httpStatus).toBe(201);
+    expect(result.businessCode).toBe(0);
+    expect(result.businessMessage).toBe('创建成功');
+    expect(result.data).toEqual({ id: '1', name: 'Alice' });
+  });
+
+  it('搭配 transformResponse → ABP 格式包装为 ApiResult', async () => {
+    const client = makeClient(
+      createAdapter({
+        status: 200,
+        data: { id: '1', name: 'Alice' },
+        headers: {},
+      }),
+      {
+        transformResponse: (resp) => {
+          const d = resp.data as any;
+          return { ...resp, data: { code: 0, msg: 'ok', result: d } };
+        },
+        parser: createResultParser(),
+      },
+    );
+
+    const result: any = await client.get('/api/user/1');
+    expect(result.ok).toBe(true);
+    expect(result.httpStatus).toBe(200);
+    expect(result.businessCode).toBe(0);
+    expect(result.data).toEqual({ id: '1', name: 'Alice' });
+  });
+
+  it('失败 → 抛 ERR_BUSINESS', async () => {
+    const client = makeClient(
+      createAdapter({
+        status: 200,
+        data: { code: 10001, msg: '余额不足' },
+        headers: {},
+      }),
+      { parser: createResultParser(), retry: false },
+    );
+
+    try {
+      await client.get('/api/data');
+      expect.fail('should throw');
+    } catch (err) {
+      const apiErr = err as ApiError;
+      expect(apiErr.code).toBe('ERR_BUSINESS');
+      expect(apiErr.businessCode).toBe('10001');
+      expect(apiErr.businessMessage).toBe('余额不足');
+    }
+  });
+
+  it('createResultParser 是纯函数 → 可直接单元测试', async () => {
+    const parser = createResultParser();
+    const result = await parser({
+      status: 205,
+      data: { code: 0, msg: 'reset', result: null },
+      headers: {},
+    });
+    expect(result.ok).toBe(true);
+    const apiResult = result.data as any;
+    expect(apiResult.ok).toBe(true);
+    expect(apiResult.httpStatus).toBe(205);
+    expect(apiResult.businessCode).toBe(0);
+    expect(apiResult.businessMessage).toBe('reset');
+    expect(apiResult.data).toBeNull();
   });
 });

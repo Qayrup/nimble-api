@@ -1,7 +1,7 @@
 import { ApiClient } from './client';
 import type { ApiOptions } from './core/types';
 
-export { ApiClient } from './client';
+export { ApiClient, defaultParser, createResultParser } from './client';
 export { MemoryCache } from './core/cache';
 export { createFetchAdapter } from './adapters/fetch';
 export { createUniAppAdapter, resetUniAppCache } from './adapters/uniapp';
@@ -36,6 +36,11 @@ export type {
   EventHubLike,
   ApiErrorCode,
   DeleteBodyMode,
+  RawResponse,
+  TransformResponseFn,
+  BusinessResult,
+  ResponseParser,
+  ApiResult,
 } from './core/types';
 
 export function createApiClient(options?: ApiOptions): ApiClient {

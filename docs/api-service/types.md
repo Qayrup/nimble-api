@@ -27,6 +27,8 @@ interface ApiOptions {
   xsrf?: boolean;
   onSwrError?: (error: ApiError, key: string) => void;
   onEventError?: (event: string, error: unknown) => void;
+  transformResponse?: TransformResponseFn;
+  parser?: ResponseParser;
 }
 ```
 
@@ -64,6 +66,8 @@ interface RequestOptions {
   throttle?: number | false | { wait: number; edge?: 'leading' | 'trailing' | 'both' };
   dedup?: boolean;
   uploadFieldName?: string;
+  transformResponse?: TransformResponseFn;
+  parser?: ResponseParser;
 }
 ```
 
@@ -130,6 +134,63 @@ interface AdapterResponse {
   headers: Record<string, string>;
 }
 ```
+
+---
+
+## 响应处理
+
+### `RawResponse`
+
+```ts
+interface RawResponse {
+  status: number;
+  data: unknown;
+  headers: Record<string, string>;
+}
+```
+
+### `TransformResponseFn`
+
+```ts
+type TransformResponseFn = (
+  response: RawResponse
+) => RawResponse | Promise<RawResponse>;
+```
+
+响应守卫 — adapter 返回后立即执行，早于 `validateStatus`。归一化不同后端的响应格式。
+
+### `BusinessResult`
+
+```ts
+interface BusinessResult {
+  ok: boolean;
+  data?: unknown;              // ok=true 时的解包数据
+  businessCode?: string;      // ok=false 时的业务错误码
+  businessMessage?: string;   // ok=false 时的业务错误消息
+}
+```
+
+### `ResponseParser`
+
+```ts
+type ResponseParser = (
+  response: { status: number; data: unknown; headers: Record<string, string> }
+) => BusinessResult | Promise<BusinessResult>;
+```
+
+### `ApiResult<T>`
+
+```ts
+interface ApiResult<T = unknown> {
+  ok: true;
+  httpStatus: number;
+  businessCode: string | number;
+  businessMessage: string;
+  data: T;
+}
+```
+
+配合 `createResultParser` 使用。成功时返回结构化上下文。
 
 ---
 
@@ -259,6 +320,7 @@ type ApiErrorCode =
   | 'ERR_ABORTED'
   | 'ERR_VALIDATION'
   | 'ERR_MAX_SIZE'
+  | 'ERR_BUSINESS'
   | 'ERR_UNKNOWN';
 ```
 
@@ -273,6 +335,8 @@ class ApiError extends Error {
   request: { url: string; method: string };
   response?: { status: number; headers: Record<string, string> };
   cause?: unknown; // ES2022 Error cause chain
+  businessCode?: string;        // parser 提取的业务错误码
+  businessMessage?: string;     // parser 提取的业务错误消息
 }
 ```
 
@@ -330,6 +394,8 @@ interface EndpointSpec<
   timeout?: number;
   responseType?: RequestOptions['responseType'];
   validateStatus?: (status: number) => boolean;
+  transformResponse?: TransformResponseFn;
+  parser?: ResponseParser;
 }
 ```
 

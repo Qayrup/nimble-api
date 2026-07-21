@@ -1,5 +1,5 @@
 import type { ApiClient } from './client';
-import type { EndpointSpec, RequestOptions } from './core/types';
+import type { EndpointSpec, RequestOptions, TransformResponseFn, ResponseParser } from './core/types';
 
 type EndpointSpecs = Record<string, EndpointSpec<any, any>>;
 
@@ -79,6 +79,8 @@ export function createTypedApi<T extends EndpointSpecs>(
         timeout: spec.timeout ?? (reqOpts?.timeout as number),
         responseType: spec.responseType ?? (reqOpts?.responseType as RequestOptions['responseType']),
         validateStatus: spec.validateStatus ?? (reqOpts?.validateStatus as ((status: number) => boolean)),
+        transformResponse: spec.transformResponse ?? (reqOpts?.transformResponse as TransformResponseFn),
+        parser: spec.parser ?? (reqOpts?.parser as ResponseParser),
       };
 
       if (reqOpts?.body !== undefined) {

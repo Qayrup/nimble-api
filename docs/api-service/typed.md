@@ -125,3 +125,5 @@ const b = await api.guarded()  // 类型: Data | null  ← 自动添加 null
 | `timeout` | `number` | 端点级超时 |
 | `responseType` | `'json' \| 'text' \| 'blob' \| 'arrayBuffer'` | 响应类型 |
 | `validateStatus` | `(status: number) => boolean` | 自定义状态码校验 |
+| `transformResponse` | `TransformResponseFn` | 端点级响应守卫，覆盖客户端级 |
+| `parser` | `ResponseParser` | 端点级业务解析器，覆盖客户端级 |

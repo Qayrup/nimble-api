@@ -51,6 +51,7 @@ export default defineConfig({
             { text: '适配器', link: '/api-service/adapters' },
             { text: '钩子系统', link: '/api-service/hooks' },
             { text: '重试策略', link: '/api-service/retry' },
+            { text: '响应处理', link: '/api-service/response' },
             { text: '类型系统', link: '/api-service/types' },
             { text: 'TypedApi', link: '/api-service/typed' },
           ],

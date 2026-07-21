@@ -7,6 +7,7 @@ import { runBeforeRequest, runAfterResponse, runBeforeRetry, runBeforeError, run
 import { calcBackoff, shouldRetry, DEFAULT_RETRY } from './retry';
 import { stop, NetworkError } from './core/types';
 import { readCookie } from './utils/cookie';
+import type { BusinessResult } from './core/types';
 import type {
   ApiOptions,
   RequestOptions,
@@ -16,8 +17,90 @@ import type {
   Hooks,
   CacheControl,
   EventHubLike,
+  TransformResponseFn,
+  ResponseParser,
 } from './core/types';
 import { ApiError } from './core/types';
+
+/**
+ * 默认业务解析器 — 识别 {code, msg, result} 统一格式。
+ *   code = 0 / '0' / undefined / null  → 成功，解包 result（若存在）
+ *   code = 非0                          → 失败，提取 code + msg
+ *   非对象                              → 成功，原样返回
+ */
+export function defaultParser(response: {
+  status: number;
+  data: unknown;
+}): BusinessResult {
+  const d = response.data as Record<string, unknown> | null;
+  if (!d || typeof d !== 'object') {
+    return { ok: true, data: response.data };
+  }
+
+  const code = d['code'];
+  const isSuccess =
+    code === 0 || code === '0' || code === undefined || code === null;
+
+  if (!isSuccess) {
+    return {
+      ok: false,
+      businessCode: code !== undefined ? String(code) : undefined,
+      businessMessage:
+        (d['msg'] as string) || (d['message'] as string) || '未知错误',
+    };
+  }
+
+  if ('result' in d) return { ok: true, data: d['result'] };
+  return { ok: true, data: response.data };
+}
+
+/**
+ * 预设结果包装器 — 成功时将解包数据包装为结构化 ApiResult。
+ *
+ * @example
+ * // 无参数 — 内部使用 defaultParser
+ * createApiClient({ parser: createResultParser() })
+ *
+ * @example
+ * // 传入自定义 innerParser
+ * createApiClient({ parser: createResultParser(myAbpParser) })
+ *
+ * @param innerParser 可选的内部解析器，不传则使用 defaultParser
+ */
+export function createResultParser(innerParser?: ResponseParser): ResponseParser {
+  return async (resp) => {
+    const parsed = innerParser
+      ? await innerParser(resp)
+      : defaultParser(resp);
+
+    // 失败透传 — 框架后续抛 ERR_BUSINESS
+    if (!parsed.ok) return parsed;
+
+    // 从响应体提取元信息
+    let businessCode: string | number = 0;
+    let businessMessage = 'ok';
+    const d = resp.data as Record<string, unknown> | null;
+    if (d && typeof d === 'object') {
+      const code = d['code'];
+      if (code !== undefined && code !== null) {
+        businessCode = code as string | number;
+      }
+      businessMessage =
+        (d['msg'] as string) || (d['message'] as string) || businessMessage;
+    }
+
+    return {
+      ok: true,
+      data: {
+        ok: true as const,
+        httpStatus: resp.status,
+        businessCode,
+        businessMessage,
+        data: parsed.data,
+      },
+    };
+  };
+}
 
 function calcBodySize(body: unknown): number {
   if (typeof body === 'string') return new TextEncoder().encode(body).byteLength;
@@ -73,6 +156,8 @@ const DEFAULT_OPTIONS: NormalizedRequestOptions = {
   maxBodyLength: null,
   deleteBodyMode: 'query' as const,
   dedup: true,
+  transformResponse: null,
+  parser: null,
 };
 
 export class ApiClient {
@@ -289,6 +374,12 @@ export class ApiClient {
           throw errorState.error;
         }
 
+        // Business errors should never be retried
+        if (error.code === 'ERR_BUSINESS') {
+          this.#dispatchEvents(errorState);
+          throw errorState.error;
+        }
+
         // Check retry — skip if signal already aborted (e.g. dispose() called mid-request)
         if (
           retry !== false &&
@@ -425,32 +516,111 @@ export class ApiClient {
       headers: response.headers,
     };
 
+    // 5a. transformResponse — 归一化后端响应格式
+    if (state.options.transformResponse) {
+      try {
+        const transformed = await state.options.transformResponse({
+          status: state.response.status,
+          data: state.response.data,
+          headers: state.response.headers,
+        });
+        state.response = {
+          status: transformed.status,
+          data: transformed.data,
+          headers: transformed.headers,
+        };
+      } catch (err) {
+        throw new ApiError(
+          err instanceof Error ? err.message : 'transformResponse error',
+          {
+            code: 'ERR_BAD_RESPONSE',
+            status: state.response.status,
+            data: state.response.data,
+            request: state.request,
+            response: state.response,
+            cause: err,
+          },
+        );
+      }
+    }
+
     // 6. maxContentLength check
     if (state.options.maxContentLength != null) {
-      const lenHeader = response.headers['content-length'];
+      const lenHeader = state.response.headers['content-length'];
       if (lenHeader) {
         const len = parseInt(lenHeader, 10);
         if (len > state.options.maxContentLength) {
           throw new ApiError(`Response too large: ${len} > ${state.options.maxContentLength}`, {
             code: 'ERR_MAX_SIZE',
-            status: response.status,
+            status: state.response.status,
             data: null,
             request: state.request,
-            response: { status: response.status, headers: response.headers },
+            response: { status: state.response.status, headers: state.response.headers },
           });
         }
       }
     }
 
     // 7. Error status check (before schema — 500s shouldn't waste CPU on validation)
-    if (!state.options.validateStatus(response.status)) {
-      throw new ApiError(`Request failed with status ${response.status}`, {
-        code: response.status >= 400 && response.status < 500 ? 'ERR_BAD_REQUEST' : 'ERR_BAD_RESPONSE',
-        status: response.status,
-        data: response.data,
-        request: state.request,
-        response: { status: response.status, headers: response.headers },
+    if (!state.options.validateStatus(state.response.status)) {
+      const effectiveParser = state.options.parser ?? defaultParser;
+      let parsed: BusinessResult | null = null;
+      try {
+        parsed = await effectiveParser({
+          status: state.response.status,
+          data: state.response.data,
+          headers: state.response.headers,
+        });
+      } catch { /* parser throw on error response → ignore, use default message */ }
+
+      throw new ApiError(
+        (!parsed?.ok && parsed?.businessMessage) || `Request failed with status ${state.response.status}`,
+        {
+          code: state.response.status >= 400 && state.response.status < 500 ? 'ERR_BAD_REQUEST' : 'ERR_BAD_RESPONSE',
+          status: state.response.status,
+          data: state.response.data,
+          request: state.request,
+          response: { status: state.response.status, headers: state.response.headers },
+          businessCode: !parsed?.ok ? parsed?.businessCode : undefined,
+          businessMessage: !parsed?.ok ? parsed?.businessMessage : undefined,
+        },
+      );
+    }
+
+    // 7a. Business result parse — HTTP 成功后判断业务成功/失败
+    const effectiveParser = state.options.parser ?? defaultParser;
+    let businessResult: BusinessResult | null = null;
+    try {
+      businessResult = await effectiveParser({
+        status: state.response.status,
+        data: state.response.data,
+        headers: state.response.headers,
       });
+    } catch {
+      // parser 异常让它抛，走 beforeError + retry
+    }
+
+    if (businessResult && !businessResult.ok) {
+      throw new ApiError(
+        businessResult.businessMessage || '业务错误',
+        {
+          code: 'ERR_BUSINESS',
+          status: state.response.status,
+          data: state.response.data,
+          request: state.request,
+          response: {
+            status: state.response.status,
+            headers: state.response.headers,
+          },
+          businessCode: businessResult.businessCode,
+          businessMessage: businessResult.businessMessage,
+        },
+      );
+    }
+
+    // 成功：data 替换为解析后的值
+    if (businessResult?.ok && businessResult.data !== undefined) {
+      state.response.data = businessResult.data;
     }
 
     // 8. Schema validation (only on successful status)
@@ -532,6 +702,14 @@ export class ApiClient {
       maxBodyLength: opts.maxBodyLength ?? this.#options.maxBodyLength ?? DEFAULT_OPTIONS.maxBodyLength,
       deleteBodyMode: opts.deleteBodyMode ?? this.#options.deleteBodyMode ?? DEFAULT_OPTIONS.deleteBodyMode,
       dedup: opts.dedup ?? DEFAULT_OPTIONS.dedup,
+      transformResponse:
+        opts.transformResponse
+        ?? this.#options.transformResponse
+        ?? DEFAULT_OPTIONS.transformResponse,
+      parser:
+        opts.parser
+        ?? this.#options.parser
+        ?? DEFAULT_OPTIONS.parser,
     };
   }
 
@@ -610,12 +788,18 @@ export class ApiClient {
 
     // onError
     if (state.options.onError && state.error) {
-      const code = typeof state.error.data === 'object' && state.error.data !== null
-        ? (state.error.data as Record<string, unknown>).code
-        : undefined;
+      // 优先用 parser 提取的 businessCode，其次从 raw data.code 取
+      const code = state.error.businessCode
+        ?? (typeof state.error.data === 'object' && state.error.data !== null
+          ? (state.error.data as Record<string, unknown>).code
+          : undefined);
       const eventKey = (code != null ? state.options.onError[String(code)] : undefined) ?? state.options.onError.default;
       if (eventKey) {
-        try { hub.emit(eventKey, state.error.data); } catch (err: unknown) {
+        const payload = {
+          code: state.error.businessCode ?? code,
+          message: state.error.businessMessage ?? state.error.message,
+        };
+        try { hub.emit(eventKey, payload); } catch (err: unknown) {
           if (this.#options.onEventError) this.#options.onEventError(eventKey, err);
           else console.warn(`[@nimble-api/api-service] Event handler threw for "${eventKey}"`, err);
         }

@@ -88,7 +88,7 @@ export interface Hooks {
 // === Request Options ===
 
 export interface RequestOptions {
-  params?: Record<string, string | number>;
+  params?: Record<string, string | number | string[]>;
   searchParams?: Record<string, string | number | boolean | (string | number | boolean)[] | null | undefined>;
   json?: unknown;
   form?: FormData;
@@ -129,6 +129,10 @@ export interface RequestOptions {
   throttle?: number | false | { wait: number; edge?: 'leading' | 'trailing' | 'both' };
   /** Skip in-flight request deduplication for this call */
   dedup?: boolean;
+  /** 响应守卫 — adapter 返回后立即执行，早于 validateStatus/hooks。归一化后端差异。 */
+  transformResponse?: TransformResponseFn;
+  /** 业务解析器 — validateStatus 通过后判断业务成功/失败并解包。覆盖客户端级 parser。 */
+  parser?: ResponseParser;
 }
 
 // === Normalized Options (internal, all defaults filled) ===
@@ -159,6 +163,8 @@ export interface NormalizedRequestOptions {
   maxBodyLength: number | null;
   deleteBodyMode: DeleteBodyMode;
   dedup: boolean;
+  transformResponse: TransformResponseFn | null;
+  parser: ResponseParser | null;
 }
 
 // === Client Options ===
@@ -186,6 +192,68 @@ export interface ApiOptions {
   onSwrError?: (error: ApiError, key: string) => void;
   /** Called when an eventHub emit throws (e.g., handler bug). Default logs console.warn. */
   onEventError?: (event: string, error: unknown) => void;
+  /**
+   * 响应守卫 — adapter 返回后立即执行，早于 validateStatus 和所有 hooks。
+   * 用于归一化不同后端的响应格式（ABP / 通用 {code,msg,result} / 自定义）。
+   * 返回值覆盖 status、data、headers 三字段。抛异常 = 中断请求。
+   */
+  transformResponse?: TransformResponseFn;
+  /**
+   * 业务解析器 — validateStatus 通过后执行。
+   * 判断业务成功/失败并解包响应体。
+   * 默认内置 parser 识别 {code, msg, result} 统一格式。
+   */
+  parser?: ResponseParser;
+}
+
+// === Transform Response ===
+
+/** adapter 返回的原始响应结构 */
+export interface RawResponse {
+  status: number;
+  data: unknown;
+  headers: Record<string, string>;
+}
+
+/**
+ * 响应守卫 — adapter 返回后立即执行，早于 validateStatus 和所有 hooks。
+ * 用于归一化不同后端的响应格式。
+ * 返回修改后的 response（可改 status/data/headers）；抛异常中断请求。
+ */
+export type TransformResponseFn = (response: RawResponse) => RawResponse | Promise<RawResponse>;
+
+// === Response Parser ===
+
+/** parser 返回结果 */
+export interface BusinessResult {
+  ok: boolean;
+  /** ok=true 时解包后的业务数据 */
+  data?: unknown;
+  /** ok=false 时业务错误码 */
+  businessCode?: string;
+  /** ok=false 时业务错误消息 */
+  businessMessage?: string;
+}
+
+/**
+ * 业务解析器 — validateStatus 通过后执行。
+ * 从 HTTP 200 响应体中判断业务成功/失败并解包。
+ * 默认内置 parser 识别 {code, msg, result} 统一格式。
+ */
+export type ResponseParser = (
+  response: { status: number; data: unknown; headers: Record<string, string> },
+) => BusinessResult | Promise<BusinessResult>;
+
+/**
+ * 统一返回结构 — 配合 createResultParser 使用。
+ * 成功时包含 httpStatus / businessCode / businessMessage / data。
+ */
+export interface ApiResult<T = unknown> {
+  ok: true;
+  httpStatus: number;
+  businessCode: string | number;
+  businessMessage: string;
+  data: T;
 }
 
 // === Adapter ===
@@ -235,6 +303,7 @@ export type ApiErrorCode =
   | 'ERR_ABORTED'
   | 'ERR_VALIDATION'
   | 'ERR_MAX_SIZE'
+  | 'ERR_BUSINESS'
   | 'ERR_UNKNOWN';
 
 export class ApiError extends Error {
@@ -243,6 +312,10 @@ export class ApiError extends Error {
   data: unknown;
   request: { url: string; method: string };
   response?: { status: number; headers: Record<string, string> };
+  /** parser 提取的业务错误码 */
+  businessCode?: string;
+  /** parser 提取的业务错误消息 */
+  businessMessage?: string;
 
   constructor(message: string, opts: {
     code?: ApiErrorCode;
@@ -251,6 +324,8 @@ export class ApiError extends Error {
     request: { url: string; method: string };
     response?: { status: number; headers: Record<string, string> };
     cause?: unknown;
+    businessCode?: string;
+    businessMessage?: string;
   }) {
     super(message, { cause: opts.cause });
     this.name = 'ApiError';
@@ -259,6 +334,8 @@ export class ApiError extends Error {
     this.data = opts.data;
     this.request = opts.request;
     this.response = opts.response;
+    this.businessCode = opts.businessCode;
+    this.businessMessage = opts.businessMessage;
   }
 }
 
@@ -305,5 +382,9 @@ export interface EndpointSpec<
   timeout?: number;
   responseType?: RequestOptions['responseType'];
   validateStatus?: (status: number) => boolean;
+  /** 响应守卫 — 覆盖客户端级 transformResponse */
+  transformResponse?: TransformResponseFn;
+  /** 业务解析器 — 覆盖客户端级 parser */
+  parser?: ResponseParser;
 }
 
