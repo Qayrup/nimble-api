@@ -34,6 +34,7 @@ export class OidcClient {
   #sync: SessionSync;
   #metadata: OidcMetadata | null = null;
   #refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  #refreshPromise: Promise<TokenSet | null> | null = null;
   #tokenChangeListeners = new Set<(evt: { token: TokenSet | null; source: string }) => void>();
 
   constructor(config: OidcConfig) {
@@ -127,19 +128,29 @@ export class OidcClient {
   }
 
   async silentRefresh(): Promise<TokenSet | null> {
+    if (this.#refreshPromise) return this.#refreshPromise;
+
     const token = this.#store.getToken();
     if (!token?.refreshToken) return null;
 
+    this.#refreshPromise = this.#doSilentRefresh(token);
+    try {
+      return await this.#refreshPromise;
+    } finally {
+      this.#refreshPromise = null;
+    }
+  }
+
+  async #doSilentRefresh(token: TokenSet): Promise<TokenSet | null> {
     try {
       const metadata = await this.#getMetadata();
       const body = new URLSearchParams({
         grant_type: 'refresh_token',
-        refresh_token: token.refreshToken,
+        refresh_token: token.refreshToken!,
         client_id: this.#config.clientId,
       });
 
       const newToken = await this.#exchangeToken(metadata.token_endpoint, body);
-      // Preserve old refreshToken if the server didn't return a new one
       if (!newToken.refreshToken) {
         newToken.refreshToken = token.refreshToken;
       }
@@ -149,7 +160,6 @@ export class OidcClient {
       this.#emitTokenChanged(newToken, 'silent-refresh');
       return newToken;
     } catch (err) {
-      // invalid_grant → session expired
       if (err instanceof OidcTokenError && err.code === 'invalid_grant') {
         this.#store.clear();
         this.#sync.broadcast(null, 'expired');
