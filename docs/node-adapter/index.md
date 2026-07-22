@@ -60,6 +60,20 @@ createNodeAdapter({
 
 `ApiOptions.timeout` / `RequestOptions.timeout` 作为请求总超时（含重定向和重试），与 `connectTimeout`/`readTimeout` 独立。
 
+### 响应体大小限制
+
+| 选项 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `maxContentLength` | `number` | `Infinity` | 响应体大小上限（字节），超限 destroy socket 并抛错 |
+
+```ts
+createNodeAdapter({
+  maxContentLength: 10 * 1024 * 1024,  // 10MB 上限
+})
+```
+
+> `ApiOptions.maxContentLength` 通过 `Content-Length` 响应头**预检**，node-adapter 的 `maxContentLength` 在**实际接收时**逐 chunk 累加校验，二者可叠加使用。
+
 ### 代理
 
 | 选项 | 类型 | 默认值 | 说明 |

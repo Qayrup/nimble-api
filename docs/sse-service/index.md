@@ -127,6 +127,7 @@ CONNECTING → OPEN → (断开) → CONNECTING → OPEN → ... → CLOSED
 ```
 
 - 每次重连前 `readyState` 会回到 `CONNECTING`
+- `maxAttempts` 耗尽后 `readyState` 变为 `CLOSED`，触发 `onClose` 回调，不再重连
 - 调用 `close()` 后 `readyState` 变为 `CLOSED`，不再触发重连
 
 ---
@@ -158,15 +159,21 @@ unsub()
 
 ## 重连机制
 
-| 配置 | 类型 | 说明 |
-|------|------|------|
-| `reconnect.maxAttempts` | `number` | 最大重连次数，默认 `Infinity`。超出后触发 `onError` |
-| `reconnect.interval` | `number` | 重连间隔 ms，默认优先使用服务端 `retry:` 字段，兜底 `3000` |
+| 配置 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `reconnect.maxAttempts` | `number` | `Infinity` | 最大重连次数。超出后 `readyState` 转 `CLOSED` 并触发 `onClose` |
+| `reconnect.interval` | `number` | 服务端 `retry:` 字段兜底 `3000` | 基础重连间隔 ms |
+| `reconnect.maxInterval` | `number` | `30000` | 指数退避封顶值 ms |
 
 > 服务端可通过 SSE 的 `retry:` 字段建议重连间隔。sse-service 会解析该字段，并以客户端 `interval` 覆盖（客户端配置优先）。
 
-- 重连时自动携带 `Last-Event-ID` 请求头，服务端可从事件 `id` 之后继续发送
+### 指数退避策略
+
+- 每次重连延迟 = `min(interval × 2^(attempts-1), maxInterval)`
+- 连接稳定超过 `interval` 时长，或成功收到事件，**attempts 自动清零**——秒连秒断不会再无限退避
 - `reconnect: false` 完全禁用重连，断开后直接进入 CLOSED 状态
+
+- 重连时自动携带 `Last-Event-ID` 请求头，服务端可从事件 `id` 之后继续发送
 
 ---
 

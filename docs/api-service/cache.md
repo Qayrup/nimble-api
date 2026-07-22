@@ -85,7 +85,7 @@ newCache.importState(snapshot);
 
 ### gcTime 垃圾回收
 
-每个缓存条目可单独设置 `gcTime`。当条目距离上次访问超过 `gcTime` 时，在 `get()` / `getStale()` / `has()` 调用时**惰性删除**。`gcTime` 默认 `Infinity`（永不回收）。
+每个缓存条目可单独设置 `gcTime`。当条目距离上次访问超过 `gcTime` 时，在 `get()` / `getStale()` / `has()` 调用时**惰性删除**。`gcTime` 默认 **5 分钟**（与 TanStack Query 一致），设 `Infinity` 可永不回收。
 
 ```ts
 // 缓存条目在最近 5 分钟内未被访问则自动回收
@@ -143,12 +143,12 @@ await api.get('/users', { cache: { skip: true } });
 
 ### 缓存 Key 生成
 
-基于 FNV-1a 哈希算法，对 `URL` + `params` + `body` 生成稳定的缓存 key：
+基于 FNV-1a 哈希算法，对 `URL` + `params` + `body` + `searchParams` + `method` 生成稳定的缓存 key。不同分页参数、GET/HEAD 等不会错误共享缓存：
 
 ```ts
 import { generateCacheKey } from '@nimble-api/api-service';
 
-const key = generateCacheKey('/users/{id}', { id: '1' }, {});
+const key = generateCacheKey('/users/{id}', { id: '1' }, {}, { page: '1' }, 'GET');
 // key: "c8a7b3..." — FNV-1a 64-bit hash hex string
 ```
 
@@ -156,6 +156,7 @@ const key = generateCacheKey('/users/{id}', { id: '1' }, {});
 - 对象 key 按字母序排序后序列化，确保 `{a:1,b:2}` 和 `{b:2,a:1}` 生成相同 hash
 - 仅当 `cache.ttl > 0` 时才生成 key（TTL=0 时不缓存）
 - URL 模板参数已被替换为实际值后才参与 hash
+- `searchParams` 和 `method` 参与 hash，避免不同分页/HTTP 方法错误共享缓存
 
 ### gcTime 全局配置
 

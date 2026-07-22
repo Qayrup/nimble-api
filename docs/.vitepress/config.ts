@@ -18,6 +18,7 @@ export default defineConfig({
       { text: 'API Service', link: '/api-service/' },
       { text: 'API Extend', link: '/api-extend/' },
       { text: 'SSE', link: '/sse-service/' },
+      { text: 'OIDC', link: '/oidc/' },
       { text: 'Node', link: '/node-adapter/' },
     ],
 
@@ -70,6 +71,14 @@ export default defineConfig({
           text: 'SSE Service',
           items: [
             { text: '概述', link: '/sse-service/' },
+          ],
+        },
+      ],
+      '/oidc/': [
+        {
+          text: 'OIDC 客户端',
+          items: [
+            { text: '概述', link: '/oidc/' },
           ],
         },
       ],

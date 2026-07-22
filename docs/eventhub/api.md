@@ -463,6 +463,10 @@ hub.emit('user/login', {}); // 匹配
 
 移除所有监听器，实例保持可用。
 
+- 挂起的 `events()` 迭代器以 `{ done: true }` 正常结束（`for await` 不再永久悬挂）
+- `once()` / `waitFor()` 的 Promise **不会** settle（`clear()` 不代表实例销毁，reject 会造成 unhandled rejection）。需要可取消时请通过 `opts.signal` 控制生命周期
+- `clear()` 后可继续注册新监听器
+
 ```ts
 clear(): void
 ```
@@ -472,6 +476,10 @@ clear(): void
 ## `dispose()`
 
 销毁实例，移除所有监听器，后续操作抛出错误。
+
+- 挂起的 `events()` 迭代器以 `{ done: true }` 正常结束
+- 挂起的 `once()` / `waitFor()` Promise 以 `DisposedError` reject
+- `dispose()` 后实例不可复用（区别于 `clear()`）
 
 ```ts
 dispose(): void

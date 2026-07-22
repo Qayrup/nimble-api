@@ -171,6 +171,8 @@ await api.post('/upload', {
 
 相同 `METHOD:URL:BODY_HASH` 的并发调用自动去重（in-flight dedup）。第一个请求发出 HTTP 调用，后续调用者直接复用同一个 Promise。
 
+> **signal 语义**：去重共享时，仅首个发起者的 `signal` 生效（控制请求取消）。后加入者的 `signal` / `options` / `hooks` 不参与共享请求的生命周期。
+
 ```ts
 // 同时触发 3 次相同请求 → 只有 1 次真实 HTTP 调用
 const [a, b, c] = await Promise.all([
@@ -183,7 +185,7 @@ const [a, b, c] = await Promise.all([
 await api.post('/users', { json: data, dedup: false });
 ```
 
-请求完成后 `inFlight` map 自动清理对应 key。`dispose()` 清空所有进行中的请求。
+请求完成后 `inFlight` map 自动清理对应 key。去重覆盖完整重试生命周期——后加入者共享重试结果而非仅首次请求。`dispose()` 清空所有进行中的请求。
 
 ## `extend(options)`
 

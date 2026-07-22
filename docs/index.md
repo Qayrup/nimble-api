@@ -46,7 +46,10 @@ features:
     details: npm workspaces 管理，5 个包独立发布，最小化依赖，按需组合使用。
   - icon: 📨
     title: SSE 支持
-    details: '@nimble-api/sse-service 提供原生 SSE 客户端，自动重连、Last-Event-ID、事件路由。'
+    details: '@nimble-api/sse-service 提供原生 SSE 客户端，指数退避自动重连、Last-Event-ID、事件路由。'
+  - icon: 🔐
+    title: OIDC 认证
+    details: '@nimble-api/oidc 提供 Authorization Code + PKCE 客户端，Token 自动刷新、多 Tab 同步、与 ApiClient 一行集成。'
   - icon: 🔁
     title: 轮询扩展
     details: '@nimble-api/api-extend 提供声明式 poll() 函数，类型安全、可取消、支持 type guard 窄化。'
