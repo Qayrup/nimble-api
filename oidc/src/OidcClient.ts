@@ -191,6 +191,9 @@ export class OidcClient {
       const body = this.#buildRefreshBody(token);
 
       const newToken = await this.#exchangeToken(metadata.token_endpoint, body);
+      if (!newToken.refreshToken) {
+        newToken.refreshToken = token.refreshToken;
+      }
       const stored = this.#stripRefreshToken(newToken);
       this.#store.setToken(stored);
       this.#sync.broadcast(stored, 'silent-refresh');
