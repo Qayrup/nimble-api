@@ -28,6 +28,11 @@ function hasSessionStorage(): boolean {
 
 const SESSION_PREFIX = 'oidc:';
 
+function backoffDelay(attempt: number, base: number, max: number): number {
+  const delay = Math.min(base * Math.pow(2, attempt - 1), max);
+  return delay + Math.random() * 200;
+}
+
 export class OidcClient {
   #config: OidcConfig;
   #store = new TokenStore();
@@ -35,6 +40,7 @@ export class OidcClient {
   #metadata: OidcMetadata | null = null;
   #refreshTimer: ReturnType<typeof setTimeout> | undefined;
   #refreshPromise: Promise<TokenSet | null> | null = null;
+  #refreshFailCount = 0;
   #tokenChangeListeners = new Set<(evt: { token: TokenSet | null; source: string }) => void>();
 
   constructor(config: OidcConfig) {
@@ -156,6 +162,7 @@ export class OidcClient {
       }
       this.#store.setToken(newToken);
       this.#sync.broadcast(newToken, 'silent-refresh');
+      this.#refreshFailCount = 0;
       this.#scheduleAutoRefresh();
       this.#emitTokenChanged(newToken, 'silent-refresh');
       return newToken;
@@ -314,7 +321,7 @@ export class OidcClient {
     if (refreshIn <= 0) return;
 
     this.#refreshTimer = setTimeout(() => {
-      this.silentRefresh().catch(() => { /* background refresh failures are silent */ });
+      this.#onAutoRefreshTick();
     }, refreshIn);
   }
 
@@ -322,6 +329,22 @@ export class OidcClient {
     if (this.#refreshTimer !== undefined) {
       clearTimeout(this.#refreshTimer);
       this.#refreshTimer = undefined;
+    }
+  }
+
+  async #onAutoRefreshTick(): Promise<void> {
+    try {
+      await this.silentRefresh();
+    } catch (err) {
+      if (err instanceof OidcTokenError && err.code === 'invalid_grant') {
+        return;
+      }
+      this.#refreshFailCount++;
+      if (this.#refreshFailCount >= 3) {
+        this.#emitTokenChanged(this.#store.getToken(), 'refresh-stale');
+      }
+      const delay = backoffDelay(this.#refreshFailCount, 30_000, 120_000);
+      this.#refreshTimer = setTimeout(() => this.#onAutoRefreshTick(), delay);
     }
   }
 

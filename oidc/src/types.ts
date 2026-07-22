@@ -34,5 +34,5 @@ export interface PkcePair {
 
 export interface TokenChangedEvent {
   token: TokenSet | null;
-  source: 'login' | 'silent-refresh' | 'logout' | 'expired';
+  source: 'login' | 'silent-refresh' | 'logout' | 'expired' | 'refresh-stale';
 }
