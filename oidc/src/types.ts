@@ -6,6 +6,8 @@ export interface OidcConfig {
   silentRefreshUri?: string;
   scopes?: string[];
   onBeforeLogin?: () => void;
+  /** refresh_token 传输方式，默认 'body' */
+  refreshTokenMode?: 'body' | 'cookie';
 }
 
 export interface TokenSet {

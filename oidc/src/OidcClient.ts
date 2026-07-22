@@ -43,6 +43,13 @@ export class OidcClient {
   #refreshFailCount = 0;
   #tokenChangeListeners = new Set<(evt: { token: TokenSet | null; source: string }) => void>();
 
+  // 模式适配 — 惰性绑定，运行时零分支
+  #canRefresh: (token: TokenSet | null) => boolean;
+  #buildRefreshBody: (token: TokenSet) => URLSearchParams;
+  #buildRevokeBody: (token: TokenSet) => URLSearchParams;
+  #stripRefreshToken: (token: TokenSet) => TokenSet;
+  #shouldAttemptRevoke: (token: TokenSet | null) => boolean;
+
   constructor(config: OidcConfig) {
     this.#config = { scopes: ['openid', 'profile', 'offline_access'], ...config };
     this.#sync = new SessionSync(config.clientId);
@@ -61,6 +68,36 @@ export class OidcClient {
         this.#sync.broadcast(token, 'login');
       }
     });
+
+    // 根据 refreshTokenMode 惰性绑定模式方法
+    const mode = this.#config.refreshTokenMode ?? 'body';
+    if (mode === 'cookie') {
+      this.#canRefresh = (t) => t !== null;
+      this.#buildRefreshBody = () => new URLSearchParams({
+        grant_type: 'refresh_token',
+        client_id: this.#config.clientId,
+      });
+      this.#buildRevokeBody = () => new URLSearchParams({
+        token_type_hint: 'refresh_token',
+        client_id: this.#config.clientId,
+      });
+      this.#stripRefreshToken = (t) => ({ ...t, refreshToken: undefined });
+      this.#shouldAttemptRevoke = (t) => t !== null;
+    } else {
+      this.#canRefresh = (t) => !!t?.refreshToken;
+      this.#buildRefreshBody = (t) => new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: t.refreshToken!,
+        client_id: this.#config.clientId,
+      });
+      this.#buildRevokeBody = (t) => new URLSearchParams({
+        token: t.refreshToken!,
+        token_type_hint: 'refresh_token',
+        client_id: this.#config.clientId,
+      });
+      this.#stripRefreshToken = (t) => t;
+      this.#shouldAttemptRevoke = (t) => !!t?.refreshToken;
+    }
   }
 
   // === Lifecycle ===
@@ -120,7 +157,8 @@ export class OidcClient {
     });
     if (codeVerifier) body.set('code_verifier', codeVerifier);
 
-    const token = await this.#exchangeToken(metadata.token_endpoint, body);
+    const raw = await this.#exchangeToken(metadata.token_endpoint, body);
+    const token = this.#stripRefreshToken(raw);
     this.#store.setToken(token);
     this.#sync.broadcast(token, 'login');
     this.#scheduleAutoRefresh();
@@ -137,9 +175,9 @@ export class OidcClient {
     if (this.#refreshPromise) return this.#refreshPromise;
 
     const token = this.#store.getToken();
-    if (!token?.refreshToken) return null;
+    if (!this.#canRefresh(token)) return null;
 
-    this.#refreshPromise = this.#doSilentRefresh(token);
+    this.#refreshPromise = this.#doSilentRefresh(token!);
     try {
       return await this.#refreshPromise;
     } finally {
@@ -150,22 +188,16 @@ export class OidcClient {
   async #doSilentRefresh(token: TokenSet): Promise<TokenSet | null> {
     try {
       const metadata = await this.#getMetadata();
-      const body = new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: token.refreshToken!,
-        client_id: this.#config.clientId,
-      });
+      const body = this.#buildRefreshBody(token);
 
       const newToken = await this.#exchangeToken(metadata.token_endpoint, body);
-      if (!newToken.refreshToken) {
-        newToken.refreshToken = token.refreshToken;
-      }
-      this.#store.setToken(newToken);
-      this.#sync.broadcast(newToken, 'silent-refresh');
+      const stored = this.#stripRefreshToken(newToken);
+      this.#store.setToken(stored);
+      this.#sync.broadcast(stored, 'silent-refresh');
       this.#refreshFailCount = 0;
       this.#scheduleAutoRefresh();
-      this.#emitTokenChanged(newToken, 'silent-refresh');
-      return newToken;
+      this.#emitTokenChanged(stored, 'silent-refresh');
+      return stored;
     } catch (err) {
       if (err instanceof OidcTokenError && err.code === 'invalid_grant') {
         this.#store.clear();
@@ -179,19 +211,14 @@ export class OidcClient {
   async logout(): Promise<void> {
     const token = this.#store.getToken();
 
-    // Revoke refresh_token if possible
-    if (token?.refreshToken) {
+    if (this.#shouldAttemptRevoke(token)) {
       try {
         const metadata = await this.#getMetadata();
         if (metadata.revocation_endpoint) {
           await fetch(metadata.revocation_endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-              token: token.refreshToken,
-              token_type_hint: 'refresh_token',
-              client_id: this.#config.clientId,
-            }),
+            body: this.#buildRevokeBody(token!),
           });
         }
       } catch { /* best-effort revocation */ }
