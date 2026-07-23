@@ -38,6 +38,7 @@ export class OidcClient {
   #store = new TokenStore();
   #sync: SessionSync;
   #metadata: OidcMetadata | null = null;
+  #metadataFetchedAt = 0;
   #refreshTimer: ReturnType<typeof setTimeout> | undefined;
   #refreshPromise: Promise<TokenSet | null> | null = null;
   #refreshFailCount = 0;
@@ -317,7 +318,9 @@ export class OidcClient {
   }
 
   async #getMetadata(): Promise<OidcMetadata> {
-    if (this.#metadata) return this.#metadata;
+    if (this.#metadata && Date.now() - this.#metadataFetchedAt < 30 * 60_000) {
+      return this.#metadata;
+    }
 
     const res = await fetch(
       `${this.#config.authority}/.well-known/openid-configuration`,
@@ -339,6 +342,7 @@ export class OidcClient {
       throw new OidcTokenError(`Invalid JSON in OIDC discovery document (HTTP ${res.status})`);
     }
     this.#metadata = parsed;
+    this.#metadataFetchedAt = Date.now();
     return this.#metadata;
   }
 
