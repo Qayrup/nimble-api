@@ -351,8 +351,8 @@ export class OidcClient {
     const token = this.#store.getToken();
     if (!token) return;
 
-    const refreshIn = token.expiresAt - Date.now() - 60_000; // 1 min before expiry
-    if (refreshIn <= 0) return;
+    let refreshIn = token.expiresAt - Date.now() - 60_000; // 1 min before expiry
+    if (refreshIn <= 0) refreshIn = 5_000; // expired or about to → refresh soon
 
     this.#refreshTimer = setTimeout(() => {
       this.#onAutoRefreshTick();
