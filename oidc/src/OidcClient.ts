@@ -109,10 +109,11 @@ export class OidcClient {
     const pkce = await generatePkcePair();
     const state = randomState();
 
-    if (hasSessionStorage()) {
-      sessionStorage.setItem(`${SESSION_PREFIX}pkce:verifier`, pkce.codeVerifier);
-      sessionStorage.setItem(`${SESSION_PREFIX}state`, state);
+    if (!hasSessionStorage()) {
+      throw new OidcUnavailableError('sessionStorage');
     }
+    sessionStorage.setItem(`${SESSION_PREFIX}pkce:verifier`, pkce.codeVerifier);
+    sessionStorage.setItem(`${SESSION_PREFIX}state`, state);
 
     const params = new URLSearchParams({
       response_type: 'code',
@@ -131,14 +132,12 @@ export class OidcClient {
   }
 
   async handleCallback(urlParams: URLSearchParams): Promise<void> {
-    const expectedState = hasSessionStorage()
-      ? sessionStorage.getItem(`${SESSION_PREFIX}state`)
-      : null;
-    const codeVerifier = hasSessionStorage()
-      ? sessionStorage.getItem(`${SESSION_PREFIX}pkce:verifier`)
-      : null;
+    if (!hasSessionStorage()) {
+      throw new OidcUnavailableError('sessionStorage');
+    }
 
-    if (expectedState !== null && urlParams.get('state') !== expectedState) {
+    const expectedState = sessionStorage.getItem(`${SESSION_PREFIX}state`);
+    if (urlParams.get('state') !== expectedState) {
       throw new OidcStateError();
     }
 
@@ -155,7 +154,8 @@ export class OidcClient {
       redirect_uri: this.#config.redirectUri,
       client_id: this.#config.clientId,
     });
-    if (codeVerifier) body.set('code_verifier', codeVerifier);
+    const codeVerifier = sessionStorage.getItem(`${SESSION_PREFIX}pkce:verifier`)!;
+    body.set('code_verifier', codeVerifier);
 
     const raw = await this.#exchangeToken(metadata.token_endpoint, body);
     const token = this.#stripRefreshToken(raw);
