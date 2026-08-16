@@ -6,15 +6,8 @@ export interface OidcConfig {
   silentRefreshUri?: string;
   scopes?: string[];
   onBeforeLogin?: () => void;
-  /** 刷新令牌存放模式。当前仅 memory 生效（cookie 需后端 HttpOnly 配合，sessionStorage 未实现）。 */
-  refreshTokenMode?: 'cookie' | 'sessionStorage' | 'memory';
-}
-
-/** importToken 选项 — 从外部 access token 导入会话（如模拟登录） */
-export interface ImportTokenOptions {
-  refreshToken?: string;
-  expiresIn?: number;
-  source?: string;
+  /** refresh_token 传输方式，默认 'body' */
+  refreshTokenMode?: 'body' | 'cookie';
 }
 
 export interface TokenSet {
@@ -43,5 +36,12 @@ export interface PkcePair {
 
 export interface TokenChangedEvent {
   token: TokenSet | null;
-  source: 'login' | 'silent-refresh' | 'logout' | 'expired';
+  source: 'login' | 'silent-refresh' | 'logout' | 'expired' | 'refresh-stale';
+}
+
+/** importToken 选项 — 从外部 access token 导入会话（如模拟登录） */
+export interface ImportTokenOptions {
+  refreshToken?: string;
+  expiresIn?: number;
+  source?: string;
 }

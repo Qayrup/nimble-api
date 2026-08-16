@@ -28,19 +28,31 @@ function hasSessionStorage(): boolean {
 
 const SESSION_PREFIX = 'oidc:';
 
+function backoffDelay(attempt: number, base: number, max: number): number {
+  const delay = Math.min(base * Math.pow(2, attempt - 1), max);
+  return delay + Math.random() * 200;
+}
+
 export class OidcClient {
   #config: OidcConfig;
   #store = new TokenStore();
   #sync: SessionSync;
   #metadata: OidcMetadata | null = null;
+  #metadataFetchedAt = 0;
   #refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  #refreshPromise: Promise<TokenSet | null> | null = null;
+  #refreshFailCount = 0;
   #tokenChangeListeners = new Set<(evt: { token: TokenSet | null; source: string }) => void>();
+
+  // 模式适配 — 惰性绑定，运行时零分支
+  #canRefresh: (token: TokenSet | null) => boolean;
+  #buildRefreshBody: (token: TokenSet) => URLSearchParams;
+  #buildRevokeBody: (token: TokenSet) => URLSearchParams;
+  #stripRefreshToken: (token: TokenSet) => TokenSet;
+  #shouldAttemptRevoke: (token: TokenSet | null) => boolean;
 
   constructor(config: OidcConfig) {
     this.#config = { scopes: ['openid', 'profile', 'offline_access'], ...config };
-    if (config.refreshTokenMode && config.refreshTokenMode !== 'memory') {
-      console.warn(`[@nimble-api/oidc] refreshTokenMode '${config.refreshTokenMode}' 尚未实现，当前仅 memory 生效`);
-    }
     this.#sync = new SessionSync(config.clientId);
 
     // Sync from other tabs
@@ -57,6 +69,36 @@ export class OidcClient {
         this.#sync.broadcast(token, 'login');
       }
     });
+
+    // 根据 refreshTokenMode 惰性绑定模式方法
+    const mode = this.#config.refreshTokenMode ?? 'body';
+    if (mode === 'cookie') {
+      this.#canRefresh = (t) => t !== null;
+      this.#buildRefreshBody = () => new URLSearchParams({
+        grant_type: 'refresh_token',
+        client_id: this.#config.clientId,
+      });
+      this.#buildRevokeBody = () => new URLSearchParams({
+        token_type_hint: 'refresh_token',
+        client_id: this.#config.clientId,
+      });
+      this.#stripRefreshToken = (t) => ({ ...t, refreshToken: undefined });
+      this.#shouldAttemptRevoke = (t) => t !== null;
+    } else {
+      this.#canRefresh = (t) => !!t?.refreshToken;
+      this.#buildRefreshBody = (t) => new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: t.refreshToken!,
+        client_id: this.#config.clientId,
+      });
+      this.#buildRevokeBody = (t) => new URLSearchParams({
+        token: t.refreshToken!,
+        token_type_hint: 'refresh_token',
+        client_id: this.#config.clientId,
+      });
+      this.#stripRefreshToken = (t) => t;
+      this.#shouldAttemptRevoke = (t) => !!t?.refreshToken;
+    }
   }
 
   // === Lifecycle ===
@@ -64,23 +106,15 @@ export class OidcClient {
   async login(): Promise<void> {
     this.#config.onBeforeLogin?.();
 
-    // fail-closed：无 sessionStorage（隐私模式/webview）时 PKCE/state 无法跨跳转保留，
-    // 静默降级会使 state 校验与 PKCE 失效（login CSRF），直接拒绝
-    if (!hasSessionStorage()) {
-      throw new OidcUnavailableError('sessionStorage');
-    }
-
     const metadata = await this.#getMetadata();
     const pkce = await generatePkcePair();
     const state = randomState();
 
-    try {
-      sessionStorage.setItem(`${SESSION_PREFIX}pkce:verifier`, pkce.codeVerifier);
-      sessionStorage.setItem(`${SESSION_PREFIX}state`, state);
-    } catch {
-      // 隐私模式等场景 setItem 可能抛 SecurityError
+    if (!hasSessionStorage()) {
       throw new OidcUnavailableError('sessionStorage');
     }
+    sessionStorage.setItem(`${SESSION_PREFIX}pkce:verifier`, pkce.codeVerifier);
+    sessionStorage.setItem(`${SESSION_PREFIX}state`, state);
 
     const params = new URLSearchParams({
       response_type: 'code',
@@ -99,13 +133,11 @@ export class OidcClient {
   }
 
   async handleCallback(urlParams: URLSearchParams): Promise<void> {
-    // fail-closed：无 sessionStorage 时 state/PKCE 校验必须执行，不允许跳过
     if (!hasSessionStorage()) {
       throw new OidcUnavailableError('sessionStorage');
     }
-    const expectedState = sessionStorage.getItem(`${SESSION_PREFIX}state`);
-    const codeVerifier = sessionStorage.getItem(`${SESSION_PREFIX}pkce:verifier`);
 
+    const expectedState = sessionStorage.getItem(`${SESSION_PREFIX}state`);
     if (urlParams.get('state') !== expectedState) {
       throw new OidcStateError();
     }
@@ -123,9 +155,11 @@ export class OidcClient {
       redirect_uri: this.#config.redirectUri,
       client_id: this.#config.clientId,
     });
-    if (codeVerifier) body.set('code_verifier', codeVerifier);
+    const codeVerifier = sessionStorage.getItem(`${SESSION_PREFIX}pkce:verifier`)!;
+    body.set('code_verifier', codeVerifier);
 
-    const token = await this.#exchangeToken(metadata.token_endpoint, body);
+    const raw = await this.#exchangeToken(metadata.token_endpoint, body);
+    const token = this.#stripRefreshToken(raw);
     this.#store.setToken(token);
     this.#sync.broadcast(token, 'login');
     this.#scheduleAutoRefresh();
@@ -139,29 +173,36 @@ export class OidcClient {
   }
 
   async silentRefresh(): Promise<TokenSet | null> {
-    const token = this.#store.getToken();
-    if (!token?.refreshToken) return null;
+    if (this.#refreshPromise) return this.#refreshPromise;
 
+    const token = this.#store.getToken();
+    if (!this.#canRefresh(token)) return null;
+
+    this.#refreshPromise = this.#doSilentRefresh(token!);
+    try {
+      return await this.#refreshPromise;
+    } finally {
+      this.#refreshPromise = null;
+    }
+  }
+
+  async #doSilentRefresh(token: TokenSet): Promise<TokenSet | null> {
     try {
       const metadata = await this.#getMetadata();
-      const body = new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: token.refreshToken,
-        client_id: this.#config.clientId,
-      });
+      const body = this.#buildRefreshBody(token);
 
       const newToken = await this.#exchangeToken(metadata.token_endpoint, body);
-      // Preserve old refreshToken if the server didn't return a new one
       if (!newToken.refreshToken) {
         newToken.refreshToken = token.refreshToken;
       }
-      this.#store.setToken(newToken);
-      this.#sync.broadcast(newToken, 'silent-refresh');
+      const stored = this.#stripRefreshToken(newToken);
+      this.#store.setToken(stored);
+      this.#sync.broadcast(stored, 'silent-refresh');
+      this.#refreshFailCount = 0;
       this.#scheduleAutoRefresh();
-      this.#emitTokenChanged(newToken, 'silent-refresh');
-      return newToken;
+      this.#emitTokenChanged(stored, 'silent-refresh');
+      return stored;
     } catch (err) {
-      // invalid_grant → session expired
       if (err instanceof OidcTokenError && err.code === 'invalid_grant') {
         this.#store.clear();
         this.#sync.broadcast(null, 'expired');
@@ -174,19 +215,14 @@ export class OidcClient {
   async logout(): Promise<void> {
     const token = this.#store.getToken();
 
-    // Revoke refresh_token if possible
-    if (token?.refreshToken) {
+    if (this.#shouldAttemptRevoke(token)) {
       try {
         const metadata = await this.#getMetadata();
         if (metadata.revocation_endpoint) {
           await fetch(metadata.revocation_endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-              token: token.refreshToken,
-              token_type_hint: 'refresh_token',
-              client_id: this.#config.clientId,
-            }),
+            body: this.#buildRevokeBody(token!),
           });
         }
       } catch { /* best-effort revocation */ }
@@ -296,7 +332,9 @@ export class OidcClient {
   }
 
   async #getMetadata(): Promise<OidcMetadata> {
-    if (this.#metadata) return this.#metadata;
+    if (this.#metadata && Date.now() - this.#metadataFetchedAt < 30 * 60_000) {
+      return this.#metadata;
+    }
 
     const res = await fetch(
       `${this.#config.authority}/.well-known/openid-configuration`,
@@ -318,6 +356,7 @@ export class OidcClient {
       throw new OidcTokenError(`Invalid JSON in OIDC discovery document (HTTP ${res.status})`);
     }
     this.#metadata = parsed;
+    this.#metadataFetchedAt = Date.now();
     return this.#metadata;
   }
 
@@ -326,11 +365,11 @@ export class OidcClient {
     const token = this.#store.getToken();
     if (!token) return;
 
-    const refreshIn = token.expiresAt - Date.now() - 60_000; // 1 min before expiry
-    if (refreshIn <= 0) return;
+    let refreshIn = token.expiresAt - Date.now() - 60_000; // 1 min before expiry
+    if (refreshIn <= 0) refreshIn = 5_000; // expired or about to → refresh soon
 
     this.#refreshTimer = setTimeout(() => {
-      this.silentRefresh().catch(() => { /* background refresh failures are silent */ });
+      this.#onAutoRefreshTick();
     }, refreshIn);
   }
 
@@ -338,6 +377,22 @@ export class OidcClient {
     if (this.#refreshTimer !== undefined) {
       clearTimeout(this.#refreshTimer);
       this.#refreshTimer = undefined;
+    }
+  }
+
+  async #onAutoRefreshTick(): Promise<void> {
+    try {
+      await this.silentRefresh();
+    } catch (err) {
+      if (err instanceof OidcTokenError && err.code === 'invalid_grant') {
+        return;
+      }
+      this.#refreshFailCount++;
+      if (this.#refreshFailCount >= 3) {
+        this.#emitTokenChanged(this.#store.getToken(), 'refresh-stale');
+      }
+      const delay = backoffDelay(this.#refreshFailCount, 30_000, 120_000);
+      this.#refreshTimer = setTimeout(() => this.#onAutoRefreshTick(), delay);
     }
   }
 
