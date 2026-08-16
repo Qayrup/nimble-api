@@ -19,6 +19,7 @@ import type {
   EventHubLike,
   TransformResponseFn,
   ResponseParser,
+  PendingRef,
 } from './core/types';
 import { ApiError } from './core/types';
 
@@ -214,6 +215,19 @@ export class ApiClient {
     } else {
       this.#dispatchEvents = this.#dispatchVanilla;
     }
+  }
+
+  // === Pending ===
+
+  /**
+   * 包装请求 loading 计数引用（兼容 Vue ref<number>）。
+   * 请求发出时 inc()，settle 时 dec()，由 typed API 层驱动。
+   */
+  resolvePending(pending: PendingRef): { inc(): void; dec(): void } {
+    return {
+      inc: () => { pending.value++; },
+      dec: () => { pending.value--; },
+    };
   }
 
   // === HTTP Methods ===

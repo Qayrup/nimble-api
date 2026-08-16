@@ -6,6 +6,15 @@ export interface OidcConfig {
   silentRefreshUri?: string;
   scopes?: string[];
   onBeforeLogin?: () => void;
+  /** 刷新令牌存放模式（cookie / sessionStorage / memory） */
+  refreshTokenMode?: 'cookie' | 'sessionStorage' | 'memory';
+}
+
+/** importToken 选项 — 从外部 access token 导入会话（如模拟登录） */
+export interface ImportTokenOptions {
+  refreshToken?: string;
+  expiresIn?: number;
+  source?: string;
 }
 
 export interface TokenSet {

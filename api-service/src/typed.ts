@@ -1,5 +1,5 @@
 import type { ApiClient } from './client';
-import type { EndpointSpec, RequestOptions, TransformResponseFn, ResponseParser } from './core/types';
+import type { EndpointSpec, RequestOptions, TransformResponseFn, ResponseParser, PendingRef } from './core/types';
 
 type EndpointSpecs = Record<string, EndpointSpec<any, any>>;
 
@@ -11,11 +11,11 @@ type HasSuppression<T> = T extends { debounce: number | { wait: number } } ? tru
 type SuppressReturn<T, Spec> = HasSuppression<Spec> extends true ? T | null : T;
 
 /** Typed API opts — replaces low-level json/form/text with a unified body convenience field */
-type TypedApiOpts = { body?: unknown } & Omit<RequestOptions, 'json' | 'form' | 'text'>;
+type TypedApiOpts = { body?: unknown; pending?: PendingRef } & Omit<RequestOptions, 'json' | 'form' | 'text'>;
 
 export type TypedApi<T extends EndpointSpecs> = {
   [K in keyof T & string]: (
-    ...args: T[K]['_params'] extends Record<string, string | number>
+    ...args: T[K]['_params'] extends Record<string, unknown>
       ? [opts: { params: T[K]['_params'] } & TypedApiOpts]
       : [opts?: TypedApiOpts]
   ) => Promise<SuppressReturn<NonNullable<T[K]['_response']>, T[K]>>
@@ -61,48 +61,57 @@ export function createTypedApi<T extends EndpointSpecs>(
     const spec = endpoints[name];
 
     const rawMethod = (reqOpts?: Record<string, unknown>) => {
+      const { pending: optPending, ...cleanOpts } = reqOpts ?? {};
+      const pendingHandle = optPending !== undefined ? client.resolvePending(optPending as PendingRef) : null;
+      pendingHandle?.inc();
       const url = spec.url;
       const method = (spec.method ?? 'GET').toUpperCase();
 
       const requestOpts: RequestOptions = {
-        ...reqOpts,
+        ...cleanOpts,
         method,
-        params: (reqOpts?.params ?? {}) as Record<string, string | number>,
-        cache: spec.cache ?? (reqOpts?.cache as RequestOptions['cache']),
-        retry: spec.retry ?? (reqOpts?.retry as RequestOptions['retry']),
-        schema: spec.schema ?? (reqOpts?.schema as RequestOptions['schema']),
-        onSuccess: spec.onSuccess ?? (reqOpts?.onSuccess as RequestOptions['onSuccess']),
-        onError: spec.onError ?? (reqOpts?.onError as RequestOptions['onError']),
-        entities: spec.entities ?? (reqOpts?.entities as RequestOptions['entities']),
-        invalidates: spec.invalidates ?? (reqOpts?.invalidates as RequestOptions['invalidates']),
-        headers: { ...spec.headers, ...(reqOpts?.headers as Record<string, string>) },
-        timeout: spec.timeout ?? (reqOpts?.timeout as number),
-        responseType: spec.responseType ?? (reqOpts?.responseType as RequestOptions['responseType']),
-        validateStatus: spec.validateStatus ?? (reqOpts?.validateStatus as ((status: number) => boolean)),
-        transformResponse: spec.transformResponse ?? (reqOpts?.transformResponse as TransformResponseFn),
-        parser: spec.parser ?? (reqOpts?.parser as ResponseParser),
+        params: (cleanOpts.params ?? {}) as Record<string, string | number | string[]>,
+        cache: spec.cache ?? (cleanOpts.cache as RequestOptions['cache']),
+        retry: spec.retry ?? (cleanOpts.retry as RequestOptions['retry']),
+        schema: spec.schema ?? (cleanOpts.schema as RequestOptions['schema']),
+        onSuccess: spec.onSuccess ?? (cleanOpts.onSuccess as RequestOptions['onSuccess']),
+        onError: spec.onError ?? (cleanOpts.onError as RequestOptions['onError']),
+        entities: spec.entities ?? (cleanOpts.entities as RequestOptions['entities']),
+        invalidates: spec.invalidates ?? (cleanOpts.invalidates as RequestOptions['invalidates']),
+        headers: { ...spec.headers, ...(cleanOpts.headers as Record<string, string>) },
+        timeout: spec.timeout ?? (cleanOpts.timeout as number),
+        responseType: spec.responseType ?? (cleanOpts.responseType as RequestOptions['responseType']),
+        validateStatus: spec.validateStatus ?? (cleanOpts.validateStatus as ((status: number) => boolean)),
+        transformResponse: spec.transformResponse ?? (cleanOpts.transformResponse as TransformResponseFn),
+        parser: spec.parser ?? (cleanOpts.parser as ResponseParser),
       };
 
-      if (reqOpts?.body !== undefined) {
-        if (reqOpts.body instanceof FormData) {
-          requestOpts.form = reqOpts.body as FormData;
-        } else if (typeof reqOpts.body === 'string') {
-          requestOpts.text = reqOpts.body;
+      if (cleanOpts.body !== undefined) {
+        if (cleanOpts.body instanceof FormData) {
+          requestOpts.form = cleanOpts.body as FormData;
+        } else if (typeof cleanOpts.body === 'string') {
+          requestOpts.text = cleanOpts.body;
         } else {
-          requestOpts.json = reqOpts.body;
+          requestOpts.json = cleanOpts.body;
         }
       }
 
-      switch (method) {
-        case 'GET': return client.get(url, requestOpts);
-        case 'POST': return client.post(url, requestOpts);
-        case 'PUT': return client.put(url, requestOpts);
-        case 'PATCH': return client.patch(url, requestOpts);
-        case 'DELETE': return client.delete(url, requestOpts);
-        case 'HEAD': return client.head(url, requestOpts);
-        case 'OPTIONS': return client.options(url, requestOpts);
-        default: throw new Error(`[@nimble-api/api-service] Unsupported HTTP method: ${method}`);
-      }
+      const invoke = () => {
+        switch (method) {
+          case 'GET': return client.get(url, requestOpts);
+          case 'POST': return client.post(url, requestOpts);
+          case 'PUT': return client.put(url, requestOpts);
+          case 'PATCH': return client.patch(url, requestOpts);
+          case 'DELETE': return client.delete(url, requestOpts);
+          case 'HEAD': return client.head(url, requestOpts);
+          case 'OPTIONS': return client.options(url, requestOpts);
+          default: throw new Error(`[@nimble-api/api-service] Unsupported HTTP method: ${method}`);
+        }
+      };
+
+      const promise = invoke();
+      if (pendingHandle) promise.finally(() => pendingHandle.dec()).catch(() => {});
+      return promise;
     };
 
     api[name] = ((reqOpts?: Record<string, unknown>) => {

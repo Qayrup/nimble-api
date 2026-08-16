@@ -1,4 +1,4 @@
-import type { OidcConfig, TokenSet, OidcMetadata } from './types';
+import type { OidcConfig, TokenSet, OidcMetadata, ImportTokenOptions } from './types';
 import { TokenStore } from './token-store';
 import { SessionSync } from './session-sync';
 import { generatePkcePair } from './pkce';
@@ -205,6 +205,18 @@ export class OidcClient {
   }
 
   // === Queries ===
+
+  /** 从外部 access token 导入会话（如模拟登录），并触发 onTokenChanged */
+  importToken(accessToken: string, options?: ImportTokenOptions): void {
+    const token: TokenSet = {
+      accessToken,
+      refreshToken: options?.refreshToken,
+      expiresAt: options?.expiresIn ? Date.now() + options.expiresIn * 1000 : Date.now() + 3600_000,
+      tokenType: 'Bearer',
+    };
+    this.#store.setToken(token);
+    this.#emitTokenChanged(token, options?.source ?? 'login');
+  }
 
   getAccessToken(): string | null {
     const token = this.#store.getToken();

@@ -41,6 +41,7 @@ export type {
   BusinessResult,
   ResponseParser,
   ApiResult,
+  PendingRef,
 } from './core/types';
 
 export function createApiClient(options?: ApiOptions): ApiClient {

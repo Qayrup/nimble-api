@@ -88,7 +88,7 @@ export interface Hooks {
 // === Request Options ===
 
 export interface RequestOptions {
-  params?: Record<string, string | number | string[]>;
+  params?: Record<string, string | number | boolean | (string | number | boolean)[] | null | undefined>;
   searchParams?: Record<string, string | number | boolean | (string | number | boolean)[] | null | undefined>;
   json?: unknown;
   form?: FormData;
@@ -363,9 +363,18 @@ export class NetworkError extends ApiError {
 
 // === Endpoint Spec (for typed API) ===
 
+/**
+ * 请求 loading 计数引用（兼容 Vue 的 ref<number>：具 value 属性）。
+ * 前端 `pending: someRef` 传入，请求发出时 value++、settle 时 value--。
+ */
+export interface PendingRef {
+  value: number;
+}
+
 export interface EndpointSpec<
-  TParams extends Record<string, string | number> | undefined = undefined,
+  TParams = unknown,
   TResponse = unknown,
+  TBody = unknown,
 > {
   url: string;
   method?: string;
@@ -373,6 +382,8 @@ export interface EndpointSpec<
   _params?: TParams;
   /** Phantom field — only used for response type inference, never accessed at runtime */
   _response?: TResponse;
+  /** Phantom field — only used for body type inference, never accessed at runtime */
+  _body?: TBody;
   /** Limit concurrent calls. true/1 = one-at-a-time; N = allow up to N concurrent. */
   lock?: boolean | number;
   /** Debounce in ms, or `{ wait, abort }`. `abort: true` cancels in-flight HTTP requests. Suppressed calls resolve to null. */

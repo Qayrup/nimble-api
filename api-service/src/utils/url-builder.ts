@@ -1,8 +1,8 @@
-type ParamValue = string | number | string[] | undefined
+type ParamValue = string | number | boolean | (string | number | boolean)[] | null | undefined
 
 export function buildUrl(
   template: string,
-  params: Record<string, string | number | string[]>,
+  params: Record<string, string | number | boolean | (string | number | boolean)[] | null | undefined>,
 ): string {
   const qIndex = template.indexOf('?')
   if (qIndex === -1) {
@@ -17,7 +17,7 @@ export function buildUrl(
     const m = part.match(/{([^}]+)}/)
     if (!m) return true
     const v = params[m[1]] as ParamValue
-    return v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0)
+    return v != null && v !== '' && !(Array.isArray(v) && v.length === 0)
   })
 
   if (parts.length > 0) {
@@ -38,7 +38,7 @@ export function buildUrl(
 
 function replacePathParams(
   template: string,
-  params: Record<string, string | number | string[]>,
+  params: Record<string, string | number | boolean | (string | number | boolean)[] | null | undefined>,
 ): string {
   return template.replace(/{([^}]+)}/g, (_match, key) => {
     const value = params[key]
