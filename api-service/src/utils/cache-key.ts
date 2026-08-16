@@ -2,6 +2,8 @@ function isEmpty(val: unknown): boolean {
   if (val == null) return true;
   if (typeof val === 'object') {
     if (Array.isArray(val)) return val.length === 0;
+    if (val instanceof Date) return false;
+    if (val instanceof Map || val instanceof Set) return val.size === 0;
     return Object.keys(val as Record<string, unknown>).length === 0;
   }
   return false;
@@ -13,6 +15,21 @@ export function stableNormalize(obj: unknown): unknown {
   }
   if (Array.isArray(obj)) {
     return obj.map(stableNormalize);
+  }
+  // Date/Map/Set 无自有可枚举键，直接走 Object.keys 会全部归一为 {} 造成缓存键碰撞，
+  // 需按类型显式序列化。
+  if (obj instanceof Date) {
+    return { __date: obj.toISOString() };
+  }
+  if (obj instanceof Map) {
+    return {
+      __map: [...obj.entries()]
+        .map(([k, v]) => [String(k), stableNormalize(v)] as const)
+        .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)),
+    };
+  }
+  if (obj instanceof Set) {
+    return { __set: [...obj.values()].map(stableNormalize).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)) };
   }
   const sorted: Record<string, unknown> = {};
   Object.keys(obj as Record<string, unknown>)

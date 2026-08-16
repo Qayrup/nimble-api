@@ -11,10 +11,11 @@ export function createFetchAdapter(timeout = 30000): RequestAdapter {
 
       const controller = new AbortController();
       let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      let timedOut = false;
 
       const effectiveTimeout = config.timeout ?? timeout;
       if (effectiveTimeout > 0) {
-        timeoutId = setTimeout(() => controller.abort(), effectiveTimeout);
+        timeoutId = setTimeout(() => { timedOut = true; controller.abort(); }, effectiveTimeout);
       }
 
       let abortHandler: (() => void) | undefined;
@@ -84,6 +85,27 @@ export function createFetchAdapter(timeout = 30000): RequestAdapter {
         });
 
         return { status: res.status, data, headers: resHeaders };
+      } catch (err) {
+        // 区分超时与用户取消：fetch 的 AbortError 无法自辨来源，需用标志位
+        if (timedOut) {
+          throw new ApiError('Request timeout', {
+            code: 'ERR_TIMEOUT',
+            status: 0,
+            data: null,
+            request: { url, method: config.method },
+            cause: err,
+          });
+        }
+        if (config.signal?.aborted) {
+          throw new ApiError('Request aborted', {
+            code: 'ERR_ABORTED',
+            status: 0,
+            data: null,
+            request: { url, method: config.method },
+            cause: err,
+          });
+        }
+        throw err;
       } finally {
         if (timeoutId) clearTimeout(timeoutId);
         if (abortHandler && config.signal) {

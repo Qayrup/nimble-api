@@ -38,6 +38,9 @@ export class OidcClient {
 
   constructor(config: OidcConfig) {
     this.#config = { scopes: ['openid', 'profile', 'offline_access'], ...config };
+    if (config.refreshTokenMode && config.refreshTokenMode !== 'memory') {
+      console.warn(`[@nimble-api/oidc] refreshTokenMode '${config.refreshTokenMode}' 尚未实现，当前仅 memory 生效`);
+    }
     this.#sync = new SessionSync(config.clientId);
 
     // Sync from other tabs
@@ -61,13 +64,22 @@ export class OidcClient {
   async login(): Promise<void> {
     this.#config.onBeforeLogin?.();
 
+    // fail-closed：无 sessionStorage（隐私模式/webview）时 PKCE/state 无法跨跳转保留，
+    // 静默降级会使 state 校验与 PKCE 失效（login CSRF），直接拒绝
+    if (!hasSessionStorage()) {
+      throw new OidcUnavailableError('sessionStorage');
+    }
+
     const metadata = await this.#getMetadata();
     const pkce = await generatePkcePair();
     const state = randomState();
 
-    if (hasSessionStorage()) {
+    try {
       sessionStorage.setItem(`${SESSION_PREFIX}pkce:verifier`, pkce.codeVerifier);
       sessionStorage.setItem(`${SESSION_PREFIX}state`, state);
+    } catch {
+      // 隐私模式等场景 setItem 可能抛 SecurityError
+      throw new OidcUnavailableError('sessionStorage');
     }
 
     const params = new URLSearchParams({
@@ -87,14 +99,14 @@ export class OidcClient {
   }
 
   async handleCallback(urlParams: URLSearchParams): Promise<void> {
-    const expectedState = hasSessionStorage()
-      ? sessionStorage.getItem(`${SESSION_PREFIX}state`)
-      : null;
-    const codeVerifier = hasSessionStorage()
-      ? sessionStorage.getItem(`${SESSION_PREFIX}pkce:verifier`)
-      : null;
+    // fail-closed：无 sessionStorage 时 state/PKCE 校验必须执行，不允许跳过
+    if (!hasSessionStorage()) {
+      throw new OidcUnavailableError('sessionStorage');
+    }
+    const expectedState = sessionStorage.getItem(`${SESSION_PREFIX}state`);
+    const codeVerifier = sessionStorage.getItem(`${SESSION_PREFIX}pkce:verifier`);
 
-    if (expectedState !== null && urlParams.get('state') !== expectedState) {
+    if (urlParams.get('state') !== expectedState) {
       throw new OidcStateError();
     }
 
@@ -215,6 +227,8 @@ export class OidcClient {
       tokenType: 'Bearer',
     };
     this.#store.setToken(token);
+    this.#sync.broadcast(token, (options?.source ?? 'login') as 'login' | 'silent-refresh' | 'logout' | 'expired');
+    this.#scheduleAutoRefresh();
     this.#emitTokenChanged(token, options?.source ?? 'login');
   }
 

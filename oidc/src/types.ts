@@ -6,7 +6,7 @@ export interface OidcConfig {
   silentRefreshUri?: string;
   scopes?: string[];
   onBeforeLogin?: () => void;
-  /** 刷新令牌存放模式（cookie / sessionStorage / memory） */
+  /** 刷新令牌存放模式。当前仅 memory 生效（cookie 需后端 HttpOnly 配合，sessionStorage 未实现）。 */
   refreshTokenMode?: 'cookie' | 'sessionStorage' | 'memory';
 }
 

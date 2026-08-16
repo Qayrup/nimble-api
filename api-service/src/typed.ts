@@ -109,7 +109,14 @@ export function createTypedApi<T extends EndpointSpecs>(
         }
       };
 
-      const promise = invoke();
+      let promise: Promise<unknown>;
+      try {
+        promise = invoke();
+      } catch (e) {
+        // invoke 同步抛错（未知 method）时已 inc，立即 dec 保持计数对称
+        pendingHandle?.dec();
+        throw e;
+      }
       if (pendingHandle) promise.finally(() => pendingHandle.dec()).catch(() => {});
       return promise;
     };

@@ -6,6 +6,8 @@ type AnyHandler = (...args: unknown[]) => void;
 interface CancellableWrapper extends AnyHandler {
   _cancelled?: boolean;
   _timer?: ReturnType<typeof setTimeout>;
+  /** 被本层包裹的 handler（用于取消时递归穿透包装链） */
+  _inner?: AnyHandler;
 }
 
 // === throttle 策略 ===
@@ -30,6 +32,7 @@ function wrapThrottleBoth(fn: AnyHandler, ms: number): CancellableWrapper {
       }
     }
   };
+  wrapped._inner = fn;
   return wrapped;
 }
 
@@ -42,6 +45,7 @@ function wrapThrottleLeading(fn: AnyHandler, ms: number): CancellableWrapper {
       if (!wrapped._cancelled) fn(...args);
     }
   };
+  wrapped._inner = fn;
   return wrapped;
 }
 
@@ -59,6 +63,7 @@ function wrapThrottleTrailing(fn: AnyHandler, ms: number): CancellableWrapper {
       if (!wrapped._cancelled) fn(...lastArgs);
     }, delay);
   };
+  wrapped._inner = fn;
   return wrapped;
 }
 
@@ -70,6 +75,7 @@ function wrapDebounce(fn: AnyHandler, ms: number): CancellableWrapper {
       if (!wrapped._cancelled) fn(...args);
     }, ms);
   };
+  wrapped._inner = fn;
   return wrapped;
 }
 
@@ -873,7 +879,8 @@ export class EventHub<T = Record<string, unknown>> {
   listenerCount(event?: keyof T & string): number {
     if (this.#destroyed) return 0;
     if (event) {
-      let count = this.#handlers.get(event)?.length ?? 0;
+      // 与 hasListeners/emit 对齐：any-handler 也会响应任意事件
+      let count = this.#anyHandlers.length + (this.#handlers.get(event)?.length ?? 0);
       for (const wh of this.#wildcardHandlers) {
         if (wh.regex.test(event)) count++;
       }
@@ -1207,7 +1214,13 @@ export class EventHub<T = Record<string, unknown>> {
     if (this.#maxListeners !== Infinity) {
       const pending = this.listenerCount(event as keyof T & string) + 1;
       if (pending > this.#maxListeners) {
-        this.#onMaxListenersExceeded(event, pending);
+        try {
+          this.#onMaxListenersExceeded(event, pending);
+        } catch (e) {
+          // throw 模式下 handler 未入列，清除 on() 预置的空键，避免污染 eventNames()
+          if (list.length === 0) this.#handlers.delete(event);
+          throw e;
+        }
       }
     }
     pos === 'unshift' ? list.unshift(record) : list.push(record);
@@ -1233,11 +1246,15 @@ export class EventHub<T = Record<string, unknown>> {
   }
 
   #cancelHandler(record: HandlerRecord): void {
-    const w = record.raw as CancellableWrapper;
-    if (w._cancelled !== undefined) w._cancelled = true;
-    if (w._timer !== undefined) {
-      clearTimeout(w._timer);
-      w._timer = undefined;
+    // 递归穿透包装链（throttle+debounce 组合时，仅清外层会让内层 trailing 仍触发）
+    let w: CancellableWrapper | undefined = record.raw as CancellableWrapper;
+    while (w) {
+      if (w._cancelled !== undefined) w._cancelled = true;
+      if (w._timer !== undefined) {
+        clearTimeout(w._timer);
+        w._timer = undefined;
+      }
+      w = w._inner as CancellableWrapper | undefined;
     }
   }
 
@@ -1272,8 +1289,15 @@ export class EventHub<T = Record<string, unknown>> {
       }
     }
 
+    // 逐个 try/catch 排空：单个 handler 抛错不能中断排空（否则剩余 meta 滞留、错位补发破坏顺序）
+    let firstErr: unknown;
     while (this.#deferredMeta.length > 0) {
-      this.#deferredMeta.shift()!();
+      try {
+        this.#deferredMeta.shift()!();
+      } catch (e) {
+        firstErr ??= e;
+      }
     }
+    if (firstErr !== undefined) throw firstErr;
   }
 }

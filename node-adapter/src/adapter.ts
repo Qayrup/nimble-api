@@ -335,6 +335,20 @@ export function createNodeAdapter(options: NodeAdapterOptions = {}) {
         body: keepBody ? config.body : undefined,
       };
 
+      // 跨源重定向（含协议降级 https→http）剥离敏感头，防止凭据泄露到第三方源
+      try {
+        const orig = new URL(config.url);
+        const target = new URL(newUrl);
+        if (orig.origin !== target.origin || orig.protocol !== target.protocol) {
+          nextConfig.headers = Object.fromEntries(
+            Object.entries(nextConfig.headers).filter(([key]) => {
+              const lower = key.toLowerCase();
+              return lower !== 'authorization' && lower !== 'cookie' && lower !== 'proxy-authorization';
+            }),
+          );
+        }
+      } catch { /* URL 解析失败则跳过跨源判断 */ }
+
       // Don't send body for GET redirects
       if (newMethod === 'GET') {
         nextConfig.headers = Object.fromEntries(

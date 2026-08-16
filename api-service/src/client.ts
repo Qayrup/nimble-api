@@ -463,10 +463,13 @@ export class ApiClient {
           throw errorState.error;
         }
 
-        // Check retry — skip if signal already aborted (e.g. dispose() called mid-request)
+        // Check retry — skip if signal already aborted (e.g. dispose() called mid-request),
+        // or error is timeout/abort (重试超时/取消无意义，避免 30s 超时被重试成 90s+)
         if (
           retry !== false &&
           !state.request.signal?.aborted &&
+          error.code !== 'ERR_TIMEOUT' &&
+          error.code !== 'ERR_ABORTED' &&
           state.retryCount <= (retry.limit ?? DEFAULT_RETRY.limit) &&
           shouldRetry(retry, error.status ?? error.response?.status, state.request.method)
         ) {

@@ -61,7 +61,12 @@ export function createXhrAdapter(timeout = 30000): RequestAdapter {
         if (config.signal) {
           onAbort = (): void => {
             xhr.abort();
-            reject(new DOMException('The request was aborted', 'AbortError'));
+            reject(new ApiError('Request aborted', {
+              code: 'ERR_ABORTED',
+              status: 0,
+              data: null,
+              request: { url: config.url, method: config.method },
+            }));
           };
           if (config.signal.aborted) {
             onAbort();

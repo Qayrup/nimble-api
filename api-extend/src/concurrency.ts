@@ -9,7 +9,8 @@ export interface ConcurrencyLimiter {
 }
 
 export function createConcurrencyLimit(limit: number): ConcurrencyLimiter {
-  if (limit < 1) throw new Error('Concurrency limit must be >= 1');
+  // NaN/Infinity 会绕过 limit<1 校验导致无并发限制
+  if (!Number.isFinite(limit) || limit < 1) throw new Error('Concurrency limit must be a finite number >= 1');
 
   let running = 0;
   const queue: Array<{

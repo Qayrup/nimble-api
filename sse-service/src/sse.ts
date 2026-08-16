@@ -95,6 +95,9 @@ class SSEConnectionImpl implements SSEConnection {
   async #connect(): Promise<void> {
     if (this.#closed) return;
 
+    // 重连时清空上一连接残留的半行，避免拼接到新连接数据造成事件损坏
+    this.#buffer = '';
+
     const baseUrl = this.#options.baseUrl ?? '';
     let url = baseUrl + this.#url;
     if (this.#options.params) {
@@ -158,11 +161,13 @@ class SSEConnectionImpl implements SSEConnection {
       const res = await fetch(url, fetchInit);
 
       if (!res.ok) {
+        await res.body?.cancel();
         throw new Error(`SSE connection failed: ${res.status} ${res.statusText}`);
       }
 
       const contentType = res.headers.get('content-type');
       if (!contentType?.includes('text/event-stream')) {
+        await res.body?.cancel();
         throw new Error(`SSE expected text/event-stream, got ${contentType}`);
       }
 
@@ -264,7 +269,7 @@ class SSEConnectionImpl implements SSEConnection {
   }
 
   #dispatch(evt: SSEEvent): void {
-    this.#reconnectAttempts = 0;
+    // 不再在此归零 attempts —— 否则"服务端接受→发一条→断连"抖动下 maxAttempts 永不触发
     const handlers = this.#handlers.get(evt.event);
     if (handlers) {
       for (const h of handlers) {
