@@ -48,6 +48,36 @@ describe('OidcClient', () => {
     client.dispose();
   });
 
+  it('coalesces concurrent login redirects until the page unloads', async () => {
+    const values = new Map<string, string>();
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      issuer: 'https://auth.example.com',
+      authorization_endpoint: 'https://auth.example.com/authorize',
+      token_endpoint: 'https://auth.example.com/token',
+      userinfo_endpoint: 'https://auth.example.com/userinfo',
+      revocation_endpoint: 'https://auth.example.com/revoke',
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('location', { href: 'https://app.example.com' });
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    });
+
+    const client = new OidcClient(makeConfig());
+    const first = client.login();
+    const second = client.login();
+    await Promise.all([first, second]);
+
+    expect(first).toBe(second);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(location.href).toMatch(/^https:\/\/auth\.example\.com\/authorize\?/);
+    expect(values.has('oidc:state')).toBe(true);
+    expect(values.has('oidc:pkce:verifier')).toBe(true);
+    client.dispose();
+  });
+
   describe('getAccessToken() / isAuthenticated()', () => {
     it('returns null and false when no token', () => {
       const client = new OidcClient(makeConfig());

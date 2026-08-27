@@ -41,6 +41,7 @@ export class OidcClient {
   #metadataFetchedAt = 0;
   #refreshTimer: ReturnType<typeof setTimeout> | undefined;
   #refreshPromise: Promise<TokenSet | null> | null = null;
+  #loginPromise: Promise<void> | null = null;
   #refreshFailCount = 0;
   #tokenChangeListeners = new Set<(evt: { token: TokenSet | null; source: string }) => void>();
 
@@ -106,7 +107,18 @@ export class OidcClient {
 
   // === Lifecycle ===
 
-  async login(): Promise<void> {
+  login(): Promise<void> {
+    if (this.#loginPromise) return this.#loginPromise;
+
+    const pending = this.#beginLogin();
+    this.#loginPromise = pending.catch((error: unknown) => {
+      this.#loginPromise = null;
+      throw error;
+    });
+    return this.#loginPromise;
+  }
+
+  async #beginLogin(): Promise<void> {
     this.#config.onBeforeLogin?.();
 
     const metadata = await this.#getMetadata();
