@@ -35,6 +35,7 @@ describe('OidcClient', () => {
       }), { status: 200 }))
       .mockResolvedValueOnce(new Response(null, { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('location', { href: 'https://app.example.com/' });
 
     const client = new OidcClient(makeConfig({ refreshTokenMode: 'cookie' }));
     client.importToken('initial-access-token', { expiresIn: 900 });
@@ -45,6 +46,8 @@ describe('OidcClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ credentials: 'include' });
     expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({ credentials: 'include' });
+    expect(String((globalThis as { location?: { href?: string } }).location?.href ?? ''))
+      .toContain('client_id=test-client');
     client.dispose();
   });
 

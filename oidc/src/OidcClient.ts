@@ -252,7 +252,10 @@ export class OidcClient {
     if (hasLocation()) {
       const metadata = await this.#getMetadata().catch(() => null);
       const logoutUrl = metadata?.end_session_endpoint
-        ? `${metadata.end_session_endpoint}?post_logout_redirect_uri=${encodeURIComponent(this.#config.postLogoutRedirectUri)}`
+        ? `${metadata.end_session_endpoint}?${new URLSearchParams({
+            client_id: this.#config.clientId,
+            post_logout_redirect_uri: this.#config.postLogoutRedirectUri,
+          }).toString()}`
         : this.#config.postLogoutRedirectUri;
       location.href = logoutUrl;
     }
