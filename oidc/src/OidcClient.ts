@@ -50,6 +50,7 @@ export class OidcClient {
   #buildRevokeBody: (token: TokenSet) => URLSearchParams;
   #stripRefreshToken: (token: TokenSet) => TokenSet;
   #shouldAttemptRevoke: (token: TokenSet | null) => boolean;
+  #protocolCredentials: RequestCredentials | undefined;
 
   constructor(config: OidcConfig) {
     this.#config = { scopes: ['openid', 'profile', 'offline_access'], ...config };
@@ -73,6 +74,7 @@ export class OidcClient {
     // 根据 refreshTokenMode 惰性绑定模式方法
     const mode = this.#config.refreshTokenMode ?? 'body';
     if (mode === 'cookie') {
+      this.#protocolCredentials = 'include';
       this.#canRefresh = (t) => t !== null;
       this.#buildRefreshBody = () => new URLSearchParams({
         grant_type: 'refresh_token',
@@ -85,6 +87,7 @@ export class OidcClient {
       this.#stripRefreshToken = (t) => ({ ...t, refreshToken: undefined });
       this.#shouldAttemptRevoke = (t) => t !== null;
     } else {
+      this.#protocolCredentials = undefined;
       this.#canRefresh = (t) => !!t?.refreshToken;
       this.#buildRefreshBody = (t) => new URLSearchParams({
         grant_type: 'refresh_token',
@@ -221,6 +224,7 @@ export class OidcClient {
         if (metadata.revocation_endpoint) {
           await fetch(metadata.revocation_endpoint, {
             method: 'POST',
+            credentials: this.#protocolCredentials,
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: this.#buildRevokeBody(token!),
           });
@@ -295,6 +299,7 @@ export class OidcClient {
   async #exchangeToken(endpoint: string, body: URLSearchParams): Promise<TokenSet> {
     const res = await fetch(endpoint, {
       method: 'POST',
+      credentials: this.#protocolCredentials,
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body,
     });
