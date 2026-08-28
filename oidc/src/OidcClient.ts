@@ -287,6 +287,14 @@ export class OidcClient {
     this.#emitTokenChanged(token, options?.source ?? 'login');
   }
 
+  /** Clears only the local SPA session. The caller owns any server-side action. */
+  clearToken(): void {
+    this.#store.clear();
+    this.#sync.broadcast(null, 'logout');
+    this.#emitTokenChanged(null, 'logout');
+    this.#clearAutoRefresh();
+  }
+
   getAccessToken(): string | null {
     const token = this.#store.getToken();
     if (!token || this.#store.isExpired()) return null;
